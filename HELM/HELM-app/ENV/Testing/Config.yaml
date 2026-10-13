@@ -1,0 +1,13 @@
+################## Azure configs ##################
+
+# Account info
+azure_subscription_id: ""
+cluster_name: K8s-QA
+cluster_resource_group: AKS
+
+################## Application configs ##################
+
+# Application deployment info
+helm_version: "1.11.0-commit-"
+helm_chart_name: app
+helm_values_file: values-testing.yaml

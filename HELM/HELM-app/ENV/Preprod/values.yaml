@@ -1,0 +1,82 @@
+
+# Default values for CET-app-helm.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+#global vars for an environment , probably will be different between environemnts
+global:
+  #docker registry
+  acrUrl: 
+  # serviceAccountName that used in many services but might require an override in the future
+  #saName: secretsmanager-sa #???
+  #environment variables that used in many services but might require an override in the future
+  # Enabling and configuring scale up/down jobs for the cluster
+  # This jobs set the replicas for all deployment to 0 and the specified time
+  # and back to 1 at the specified up time
+  #scaleUpJobEnabled: false
+  #scaleDownJobEnabled: false
+  #scaleUpJobSchedule: "30 6 * * 0-4"
+  #scaleDownJobSchedule: "0 19 * * 0-4"
+  #general hpa settings
+serviceEnable:
+  #app services
+  accessmngapi: false
+  accountservices: false
+  accountservicesapi: false
+  learning: false
+  learning-collaboration: false
+  servicebusmetrics: false
+  treeservice: false
+services:
+  #this is an example fo the foramt of adding a service , all other services should follow the same template
+  #so the helper functions can handle them
+  #app_user_audit_log_service:
+  #should this service and its related object be deployed
+  #enable: true
+
+  #name of the service , this will be used a base name for the objects creater by the helper functions for this service
+  #the tag of the image
+  #imageTag: uid_5d219b20
+  #this export environemnt vars to the deployment from a list of config maps
+  #no need to pass this key if not using it, it is designed to remove clutter form the 
+  #values file by grouping service specific env vars into a configmap
+  # envsFromConfigMap: []
+
+  #env vars that will be loaded from secrets mathcing the names in the list
+  #no need to pass this key if not using it
+  # envVarsFromSecrets: [mongo, kafka, api-gateway, system-access]
+
+  #env vars from global to use , if you want to override them remove the seelcted
+  #var from the list and add it in envVars
+  #no need to pass this key if not using it
+  # envVarsFromGlobal: [AVAILABLE_SUBSCRIPTION, ENDPOINTS_WHITELIST, API_GATEWAY_URL]
+
+  #list of env vars with specific values for this service
+  accessmngapi:
+    name: accessmngapi
+    imageTag: v10.5.0
+    imageName: AccessMngApi
+  accountservices:
+    name: accountservices
+    imageTag: v1.2.6
+    imageName: AccountServices
+  accountservicesapi:
+    name: accountservicesapi
+    imageTag: v1.0.11
+    imageName: AccountServicesApi
+  learning:
+    name: learning
+    imageTag: v6.124.5
+    imageName: HendrXPoc
+  learning-collaboration:
+    name: learning-collaboration
+    imageTag: v6.198.0
+    imageName: HendrXPoc
+  servicebusmetrics:
+    name: servicebusmetrics
+    imageTag: v1.1.0
+    imageName: ServiceBusMetricsService
+  treeservice:
+    name: treeservice
+    imageTag: v1.5.0
+    imageName: TreeService

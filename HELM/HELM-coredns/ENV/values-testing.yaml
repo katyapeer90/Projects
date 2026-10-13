@@ -1,0 +1,63 @@
+domains:
+  accessmngapi: ""
+  accountservicesapi: ""
+  activityapi: ""
+  adminsite: ""
+  apigateway: ""
+  bigdataapi: ""
+  botitservice: ""
+  chatbotapi: ""
+  contentapi: ""
+  cookiesapi: ""
+  dashboard: ""
+  dashboardapi: ""
+  documentservice: ""
+  environment: ""
+  folderservice: ""
+  identitymanagementapi: ""
+  jobsapi: ""
+  learning: ""
+  learningapi: ""
+  lmsapi: ""
+  loresources: ""
+  loservices: ""
+  lothemes: ""
+  magnilearnservice: ""
+  nairobiapi: ""
+  nairobigateway: ""
+  nairobirecommendationsapi: ""
+  nairobisite: ""
+  productplayer: ""
+  productplayerservices: ""
+  productsapi: ""
+  recommendationsapi: ""
+  speechace: ""
+  studentsapi: ""
+  teachersapi: ""
+  termsapi: ""
+  treeservices: ""
+  dashboardeventhendlerapi: ""
+  catalogsearchapi: ""
+  activitycontextsapi: ""
+  catalogapi: ""
+  authzapi: ""
+
+hosts:
+  btestingcache1: 
+  redistest: 
+  loservices-test.redis.cache.windows.net: 
+  btestingrep1il: 
+  btestingrep2il: 
+  BdevMongo: 
+  signalr-cet-testing.service.signalr.net: 
+  loservicestest.database.windows.net: 
+  nairobi-testing-sql-cet.database.windows.net: 
+  nairobi-testing-sql-cet-il.database.windows.net: 
+  cetRepository.prod.local: 
+  cetRepository.testingrep: 
+  sqltestag: 
+  testingsql: 
+  btestingsql: 
+  bdevsql: 
+  sqltest-lst: 
+  kdevsql: 

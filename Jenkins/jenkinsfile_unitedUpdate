@@ -1,0 +1,472 @@
+#!/usr/bin/env groovy
+import groovy.json.JsonSlurperClassic
+import jenkins.model.Jenkins;
+@Library('jenkins-shared-library')_
+
+properties([
+    parameters([
+      //string(name: 'SERVICE_NAME', value: ""),
+      //string(name: 'NEW_COMMIT_SHA', value: ""),
+    [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: '',  
+      name: 'SERVICE_NAME', 
+        script: [$class: 'GroovyScript', 
+          fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']' ], 
+          script: [
+            classpath: [], 
+            sandbox: true, 
+            script: '''
+            def serviceNames = ['','xapifunction', 'catalogapi', 'authzapi', 'catalogsearchapi', 'itestai', 'catalogadmin' , 'activitycontextsapi' , 'accessmngapi', 'accountservices', 'accountservicesapi', 'activityapi', 'adminsite', 'apigateway','bigdataapi', 'botitservice', 'chatbotapi', 'collaboration', 'contentapi', 'cookiesapi', 'dashboard', 'dashboardapi','dashboardeventhandlerapi','documentservice', 'environment', 'folderservice', 'hendrxpoc', 'identitymanagementapi', 'jobsapi', 'learning', 'learning-collaboration', 'fileproxyapi', 'learningapi', 'lmsapi', 'loresources', 'lothemes', 'magnilearnservice', 'loservices', 'mybagapi', 'nairobiapi', 'nairobigateway', 'nairobirecommendationsapi', 'nairobisite', 'productplayerservices', 'productsapi', 'recommendationsapi', 'servicebusmetrics', 'speechace', 'studentsapi', 'studentswebapp', 'teachersapi', 'teacherreportsapi', 'termsapi', 'treeservice', 'productplayer']
+
+            def sortedServiceNames = serviceNames.sort()
+
+            return sortedServiceNames
+            '''
+          ]
+        ]
+    ],
+      //string(name: 'NEW_IMAGE_TAG', value: ""),
+      [$class: 'CascadeChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: '',  
+        name: 'NEW_IMAGE_TAG',
+          referencedParameters: 'SERVICE_NAME',  
+          script: [$class: 'GroovyScript', fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+            script: [classpath: [], sandbox: true, 
+              script: """
+              import jenkins.model.*
+              import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials
+                credentialsId = '1d641054-6340-40a3-932d-8d01029eafaf'
+                creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, Jenkins.instance, null, null).find{it.id == credentialsId}
+                user=""
+                pass=creds.password
+
+              
+              "az login -u \${user} -p \${pass} --output none".execute().text
+                if (SERVICE_NAME.isEmpty()) {
+                      return ['']
+                }
+                def versions = "az acr repository show-tags --name ACR --repository \${SERVICE_NAME} --output tsv".execute().text.split() as List
+                return versions                 
+                """
+            ]
+          ]
+      ],
+      [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: 'Choose the version bump for the release',  
+          name: 'ENV', 
+          script: [$class: 'GroovyScript', 
+              fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+              script: [ classpath: [], sandbox: true, script: "return[\'Testing\',\'Preprod\',\'Production\']"]
+          ]
+      ],
+      [$class: 'CascadeChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: '',  
+        name: 'releaseVersion',
+        referencedParameters: 'ENV',  
+        script: [$class: 'GroovyScript', fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+          script: [classpath: [], sandbox: true, 
+            script: """
+                if (ENV == 'Production') {
+                    return [\'minor\',\'major\',\'patch\']
+                }else{
+                    return [\'error\']
+                }                  
+            """
+          ]
+        ]
+      ],
+      text(name: 'releaseDescription', value: ""), 
+      booleanParam(name: 'Create_Version', defaultValue: false, description: 'Create a new version of the chart for deploy?'),
+    ])
+])  
+newworkspace = "/jenkins-cet/workspace/${env.JOB_NAME}/app"
+pipeline { 
+      agent { 
+          node{ 
+            label 'Ansible-IT'
+            customWorkspace newworkspace 
+        } 
+      }
+      options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+        timestamps()
+        skipDefaultCheckout()
+      }
+ 
+      stages{ 
+        stage ("Checkout"){
+          steps {
+            cleanWs()
+            script{ 
+                checkout([
+                $class: 'GitSCM',
+                branches: [[name: "*/main"]], 
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [], 
+                submoduleCfg: [], 
+                userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: 'https://@REPO/_git/app']]])
+            }
+          }
+        }
+        stage ('Update Image Tag') {
+          steps {
+            script { 
+              NEW_IMAGE_TAG = params.NEW_IMAGE_TAG.toLowerCase()   
+              SERVICE_NAME = params.SERVICE_NAME.toLowerCase() 
+              if (SERVICE_NAME == "" && NEW_IMAGE_TAG == "") {
+                echo "No service to update, skipping image tag update"
+              }else {
+                sh "cp ENV/${ENV}/values.yaml values.yaml"
+                  // Read the values.yaml file
+                  valuesFile = readFile('values.yaml')
+                  // Define a regex pattern to find the service and imageTag
+                  pattern = "${SERVICE_NAME}:\n\\s+name: ${SERVICE_NAME}\n\\s+imageTag: ([^\\n]*)\n"
+                  replacement = "${SERVICE_NAME}:\n    name: ${SERVICE_NAME}\n    imageTag: ${NEW_IMAGE_TAG}\n"
+                  echo "Pattern: ${pattern}"
+                  echo "Replacement: ${replacement}"
+                  echo "Current values.yaml:\n${valuesFile}"
+                  // Replace the imageTag for the specified service
+                  def newValuesContent = valuesFile.replaceAll(pattern, replacement)
+                  echo "Updated values.yaml content:\n${newValuesContent}"
+
+                  // Write the updated content back to values.yaml
+                  writeFile(file: 'values.yaml', text: newValuesContent)   
+
+                  //Copy the values.yaml to the ENV folder        
+                  sh "cp values.yaml ENV/${ENV}/values.yaml"                  
+              }
+            }                        
+          }
+        }
+        stage ('Update Chart.yaml'){
+          when { expression { params.Create_Version || params.Create_Version_for_IL} }
+          steps {
+            script {
+              if (params.ENV == "Testing") {
+                VERSION = sh(script: 'date +%Y%m%d%H%M', returnStdout: true).trim()
+                echo "Version: ${VERSION}"
+                // Read the Chart.yaml file
+                chartFile = readFile('Chart.yaml')
+                // Regular expression to match version and appVersion lines, capturing the initial version part
+                versionRegex = /(version: \d+\.\d+\.\d+).*/
+                appVersionRegex = /(appVersion: ").*(")/
+                echo "Current chart:\n${chartFile}"
+
+                // Replace the commit SHA in the version and appVersion while preserving the initial version part
+                chartFile = chartFile.replaceAll(versionRegex, "\$1-${VERSION}")
+                chartFile = chartFile.replaceAll(appVersionRegex, "\$1${VERSION}\$2")
+                echo "Updated Chart.yaml content:\n${chartFile}"
+
+                // Write the updated content back to Chart.yaml
+                writeFile(file: 'Chart.yaml', text: chartFile)
+
+                newChartFile = readFile('Chart.yaml')
+                chartVersion = sh(script: 'grep -oP "version: \\K.+" Chart.yaml | awk \'{print $1}\'', returnStdout: true).trim()
+                echo "Chart version: ${chartVersion}"
+
+                script= "Uploading the updated files to remote for ${params.ENV} environment"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  git commit -m \"Update imageTag for ${SERVICE_NAME} to ${NEW_IMAGE_TAG} chart ${chartVersion} ${releaseDescription}\"
+                  git push https://${TOKEN}@REPO/_git/app HEAD:main
+                  """
+                }
+              } else if (params.ENV == "Preprod") {
+                VERSION = sh(script: 'date +%Y%m%d%H%M', returnStdout: true).trim()
+                echo "Version: ${VERSION}"
+                // Read the Chart.yaml file
+                chartFile = readFile('Chart.yaml')
+                // Regular expression to match version and appVersion lines, capturing the initial version part
+                versionRegex = /(version: \d+\.\d+\.\d+).*/
+                appVersionRegex = /(appVersion: ").*(")/
+                echo "Current chart:\n${chartFile}"
+
+                // Replace the commit SHA in the version and appVersion while preserving the initial version part
+                chartFile = chartFile.replaceAll(versionRegex, "\$1-${VERSION}-preprod")
+                chartFile = chartFile.replaceAll(appVersionRegex, "\$1${VERSION}\$2")
+                echo "Updated Chart.yaml content:\n${chartFile}"
+
+                // Write the updated content back to Chart.yaml
+                writeFile(file: 'Chart.yaml', text: chartFile)
+
+                newChartFile = readFile('Chart.yaml')
+                chartVersion = sh(script: 'grep -oP "version: \\K.+" Chart.yaml | awk \'{print $1}\'', returnStdout: true).trim()
+                echo "Chart version: ${chartVersion}"
+
+                script= "Uploading the updated files to remote for ${params.ENV} environment"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  git commit -m \"Update imageTag for ${SERVICE_NAME} to ${NEW_IMAGE_TAG} chart ${chartVersion} ${releaseDescription}\"
+                  git push https://${TOKEN}@REPO/_git/app HEAD:main
+                  """
+                }                
+              } else if (params.ENV == "Production") {
+                // Read the Chart.yaml file
+                script= "Reading Chart.yaml file"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                chartFile = readFile('Chart.yaml')
+                versionRegex = /(version: ).*/
+                appVersionRegex = /(appVersion: ").*(")/
+                chartVersion = sh(script: 'grep -oP "version: \\K.+" Chart.yaml | awk \'{print $1}\'', returnStdout: true).trim()
+                println "The version in the chart is: ${chartVersion}"
+                
+              // Validate version format
+              // script= "Validating version format"
+              // global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              //   if (!(chartVersion ==~ /^\d+\.\d+\.\d+$/)) {
+              //     error "Invalid version format. Version must be in the format x.x.x"
+              //   }else {
+              //     echo "Version format is valid, Chart version: ${chartVersion}"
+              //   }
+              //   echo "Current chart:\n${chartFile}"
+
+              // Validate version against the last Git tag
+              script= "Getting prevuious release git tag"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              lastGitTag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
+              println "${lastGitTag}"
+
+              script= "Bumping the version to ${releaseVersion}"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              newVersion = globalversionBump(currentVersion: lastGitTag, versionBumpType: releaseVersion)
+              println "The new version is: ${newVersion}"
+              // if (version == 'minor'){
+              //   if ("${chartVersion}" != "${newVersion}") {
+              //     error "Version mismatch. Chart version (${chartVersion}) should match the last Git tag (${lastGitTag})."
+              //   }else{
+              //     echo "Chart version (${chartVersion}) matches the last Git tag (${newVersion})."
+              //   }
+              // }else{
+                script= "Updating Chart.yaml file with the new version"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                chartFile = chartFile.replaceAll(versionRegex, "version: ${newVersion}")
+                chartFile = chartFile.replaceAll(appVersionRegex, "appVersion: \"${newVersion}\"") 
+                echo "Updated Chart.yaml content:\n${chartFile}"
+
+                // Write the updated content back to Chart.yaml
+                writeFile(file: 'Chart.yaml', text: chartFile)
+                // }
+              script= "Chart was successfully updated to the new version: ${newVersion}"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              chartVersion = "${newVersion}"
+
+              script= "Updating Chart.yaml file to the remote Git repository"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+                  withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                  env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  git commit -m \"Update Chart for release to ${newVersion}\"
+                  git push https://Tech:${TOKEN}@REPO/_git/app HEAD:main
+                  """
+                  sh "git tag -a ${newVersion} -m \"Release ${releaseDescription}\""
+                  sh "git push https://Tech:${TOKEN}@REPO/_git/app ${newVersion}"
+                  }
+                
+              }            
+            }
+          }
+        }
+        stage ('upload file to remote') {
+          when {expression { !params.Create_Version}}
+          steps {
+            script {
+              script= "Uploading the updated files to remote for ${params.ENV} environment"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+              withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+              env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                sh """
+                git config user.email ""
+                git config user.name "TFSservice"
+                git add .
+                git commit -m \"Update imageTag for ${SERVICE_NAME} to ${NEW_IMAGE_TAG} ${releaseDescription}\"
+                git push https://Tech:${TOKEN}@REPO/_git/app HEAD:main
+                """
+              }
+            }
+          }
+        }
+        // stage ('Prepare valuse file for environment'){
+        //   steps{
+        //     script{
+        //       echo "ENV: ${ENV}"
+        //       if (ENV == "Testing") {
+        //         sh "mv ${WORKSPACE}/ENV/values-testing.yaml ${WORKSPACE}/values.yaml"
+        //       }else if (ENV == "Release") {
+        //         sh "mv ${WORKSPACE}/ENV/values-preprod.yaml ${WORKSPACE}/values.yaml"
+        //       }else if (ENV == "Production") {
+        //         sh "mv ${WORKSPACE}/ENV/values-prod.yaml ${WORKSPACE}/values.yaml"
+        //       }
+        //       sh "ls -la"
+        //     }
+        //   }
+        // }
+        stage('Push chart to ACR'){
+          when { expression { params.Create_Version} }
+          steps{
+            script{
+                //Package helm version
+                script= "Packaging the new version of the helm chart"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+                sh "mv ENV/${ENV}/values.yaml ${WORKSPACE}/values.yaml"
+                sh "rm -rf ENV/"
+                sh "ls -la"
+                dir ("/jenkins-cet/workspace/${env.JOB_NAME}"){
+                  sh "helm package app"
+                  sh "ls -la"
+                
+                //Push helm chart to ACR
+                script= "Uploading the new version of the helm chart to ACR"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                withCredentials([usernamePassword(credentialsId: "AdminUserTFS", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                sh "az login -u ${USERNAME} -p \'${PASSWORD}\'"
+                }
+                  sh "az account set --subscription "
+                  sh "az acr login -n ACR"
+                  sh "helm push app-${chartVersion}.tgz oci://ACR"
+                }
+                script= "Chart version ${chartVersion} updated successfully."
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+            }
+          }
+        }
+        stage ('Bumping the version for next release'){
+          when { expression { ENV == "Production" && params.Create_Version && params.versionBumpType != 'patch' } }
+          steps {
+            cleanWs()
+            script {
+              checkout([
+              $class: 'GitSCM',
+              branches: [[name: "*/main"]], 
+              doGenerateSubmoduleConfigurations: false,
+              extensions: [], 
+              submoduleCfg: [], 
+              userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: 'https://REPO/_git/app']]]) 
+
+              // Increment the version
+              script= "Bumping the version for next release"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              chartFile = readFile('Chart.yaml')
+              versionRegex = /(version: ).*/
+              appVersionRegex = /(appVersion: ").*(")/
+
+              gitTag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
+              println "${gitTag}"
+
+              newReleaseVersion = globalversionBump(currentVersion: gitTag, versionBumpType: 'minor')
+              echo "New version: ${newReleaseVersion}"
+
+              script= "Updating Version in Chart.yaml"
+              global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+              chartFile = chartFile.replaceAll(versionRegex, "version: ${newReleaseVersion}")
+              chartFile = chartFile.replaceAll(appVersionRegex, "appVersion: \"${newReleaseVersion}\"") 
+              echo "Updated chart:\n${chartFile}"
+
+              writeFile(file: 'Chart.yaml', text: chartFile)
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                sh """
+                git config user.email ""
+                git config user.name "TFSservice"
+                git add .
+                git commit -m \"Update Chart for next release to ${newReleaseVersion}\"
+                git push https://${TOKEN}@REPO/_git/app HEAD:main
+                """
+                echo "Next release version is: ${newReleaseVersion}"
+                }
+                 
+            }
+          }
+        }
+      //  stage('Run CD for testing'){
+      //    when { expression { params.ENV == "Testing" } }
+      //    steps{
+      //      script{
+      //        build job: 'Helm_Deploy_test', parameters: [string(name: 'ENV', value: "${params.ENV}"), string(name: 'chartVersion', value: "${chartVersion}")]
+      //      }
+      //    }
+      //  }
+      }  
+  post {
+		always {
+      script {
+        if(params.Create_Version || params.Create_Version_for_IL){
+        setBuildDescription (SERVICE_NAME, NEW_IMAGE_TAG, ENV, chartVersion)  
+        }else{
+          setBuildDescriptionNoChart (SERVICE_NAME, NEW_IMAGE_TAG, ENV)
+        } 
+      }                 	
+    }
+    success {
+      script{
+        println "Success"
+        emailext subject: "Pipeline ${env.JOB_NAME} was Successful for service ${SERVICE_NAME}", 
+        body: "The version of ${SERVICE_NAME} was updated successfuly to ${NEW_IMAGE_TAG}.", 
+        to: '', 
+        attachLog: true,
+        compressLog: true
+      }    
+    }
+    failure {
+      script {
+        println "Failed"
+        emailext subject: "Pipeline ${env.JOB_NAME} Failed", 
+        body: "The job failed, please see log.", 
+        to: '', 
+        attachLog: true,
+        compressLog: true
+      }
+    }
+	}      
+}
+def setBuildDescription (SERVICE_NAME, NEW_IMAGE_TAG, ENV, chartVersion) {
+  currentBuild.description = "SERVICE_NAME: ${SERVICE_NAME}\nNEW_IMAGE_TAG: ${NEW_IMAGE_TAG}\nENV: ${ENV}\nChart Version: ${chartVersion}"                 
+}
+def setBuildDescriptionNoChart (SERVICE_NAME, NEW_IMAGE_TAG, ENV) {
+  currentBuild.description = "SERVICE_NAME: ${SERVICE_NAME}\nNEW_IMAGE_TAG: ${NEW_IMAGE_TAG}\nENV: ${ENV}"                 
+}
+def globalversionBump(Map config = [:]) {
+  currentVersion   = config.get('currentVersion')  
+  versionBumpType     = config.get('versionBumpType')   
+
+  // Split the current version into major, minor, and patch components
+  def (major, minor, patch) = currentVersion.tokenize('.').collect { it.toInteger() }
+
+  switch (versionBumpType) {
+  case 'patch':
+      patch += 1
+      break
+  case 'minor':
+      minor += 1
+      patch = 0
+      break
+  case 'major':
+      major += 1
+      minor = 0
+      patch = 0
+      break
+  default:
+      println "Invalid bump_type. Expected 'patch', 'minor', or 'major'."
+  }
+
+  newVersion = "${major}.${minor}.${patch}"
+  return newVersion        
+}

@@ -1,0 +1,17 @@
+
+
+{{ include "createDeployments" . }}
+
+---
+
+{{ include "createServices" . }}
+
+---
+
+{{ include "createHPA" . }}
+
+---
+
+{{ include "createAPIServices" . }}
+
+---

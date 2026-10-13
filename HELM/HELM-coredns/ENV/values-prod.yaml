@@ -1,0 +1,63 @@
+domains:
+  nairobiapi: ""
+  contentapi: ""
+  nairobiapi-mahmud: ""
+  contentapi-mahmud: ""
+  jobsapi-mahmud: ""
+  nairobiapi-doron: ""
+  contentapi-doron: ""
+  jobsapi-doron: ""
+  nairobiapi-medsec: ""
+  contentapi-medsec: ""
+  teachersapi-medsec: ""
+  nairobirecommendationsapi-medsec: ""
+  jobsapi-medsec: ""
+  teachersapi: ""
+  nairobirecommendationsapi: ""
+  jobsapi: ""
+  studentsapi: ""
+  dashboardapi: ""
+  busapi: ""
+  apigateway: ""
+  nairobigateway: ""
+  bigdataapi: ""
+  accessmngapi: ""
+  learningapi: ""
+  activityapi: ""
+  cookiesapi: ""
+  recommendationsapi: ""
+  learning: ""
+  lmsapi: ""
+  productsapi: ""
+  chatbotapi: ""
+  identitymanagementapi: ""
+  accountservicesapi: ""
+  magnilearnservice: ""
+  treeservice: ""
+  environment: ""
+  activitycontextsapi: ""
+  fileproxyapi: ""
+  xapifunction: ""
+  teacherreportsapi: ""
+
+hosts:
+  ussql: 
+  cet-key-vault-prod.vault.azure.net: 
+  sts: 
+  ksql: 
+  wssql: 
+  zssql: 
+  sqlprod-lsn: 
+  sqlprod-lst: 
+  redisprod: 
+  Bmongop01: 
+  Bmongop02: 
+  Bmongop03: 
+  BMONGOLO: 
+  ebag-prod.redis.cache.windows.net: 
+  loservices-prod.redis.cache.windows.net: 
+  signalr-cet-prod.service.signalr.net: 
+  bigdataapi.blob.core.windows.net: 
+  nairobi-production-sql-cet-il.database.windows.net: 
+  nairobidashboard.documents.azure.com: 
+  nairobidashboard-israelcentral.documents.azure.com: 

@@ -1,0 +1,128 @@
+name: Direct bump WordPress base image in ort-monorepo
+
+on:
+  repository_dispatch:
+    types: [wp_core_updated]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wp-bump-${{ github.workflow }}-${{ github.event.client_payload.environment }}-${{ github.event.client_payload.site_key }}
+  cancel-in-progress: false
+
+jobs:
+  bump-direct:
+    runs-on: ubuntu-custom
+
+    steps:
+      - name: Validate payload + decide target branch
+        id: v
+        shell: bash
+        run: |
+          set -e
+
+          SITE_KEY='${{ github.event.client_payload.site_key }}'
+          WP_VERSION='${{ github.event.client_payload.wp_version }}'
+          ENV='${{ github.event.client_payload.environment }}'
+
+          if ! echo "$SITE_KEY" | grep -Eq '^[a-z0-9-]+$'; then
+            echo "Invalid site_key: $SITE_KEY"
+            exit 1
+          fi
+
+          if ! echo "$WP_VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+            echo "Invalid wp_version: $WP_VERSION"
+            exit 1
+          fi
+
+          case "$ENV" in
+            testing)    TARGET_BRANCH="testing" ;;
+            production) TARGET_BRANCH="main" ;;
+            *)
+              echo "Unsupported environment: $ENV"
+              exit 1
+              ;;
+          esac
+
+          DOCKERFILE="wp-${SITE_KEY}/Dockerfile"
+
+          echo "site_key=$SITE_KEY" >> "$GITHUB_OUTPUT"
+          echo "wp_version=$WP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+          echo "target_branch=$TARGET_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ort-monorepo target branch
+        uses: actions/checkout@v7
+        with:
+          repository: 
+          ref: ${{ steps.v.outputs.target_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.MONOREPO_TOKEN }}
+
+      - name: Update Dockerfile and push to target branch
+        shell: bash
+        run: |
+          set -e
+
+          BR='${{ steps.v.outputs.target_branch }}'
+          DF='${{ steps.v.outputs.dockerfile }}'
+          WPV='${{ steps.v.outputs.wp_version }}'
+          SITE='${{ steps.v.outputs.site_key }}'
+          ENV='${{ steps.v.outputs.env }}'
+
+          if [ ! -f "$DF" ]; then
+            echo "Dockerfile not found: $DF"
+            exit 1
+          fi
+
+          git checkout "$BR"
+
+          echo "Before update, core FROM line is:"
+          grep -iE '^FROM[[:space:]]+wordpress:[0-9]+(\.[0-9]+){1,3}-php[0-9]+\.[0-9]+-fpm[[:space:]]+AS[[:space:]]+core[[:space:]]*$' "$DF" || true
+
+          # Stop only if the core line already contains the requested WP version
+          if grep -qiE "^FROM[[:space:]]+wordpress:${WPV}-php[0-9]+\.[0-9]+-fpm[[:space:]]+AS[[:space:]]+core[[:space:]]*$" "$DF"; then
+            echo "No change needed (already ${WPV})"
+            exit 0
+          fi
+
+          # Update ONLY the core stage line:
+          # FROM wordpress:<old-version>-phpX.Y-fpm AS core
+          # -> FROM wordpress:${WPV}-phpX.Y-fpm AS core
+          sed -i -E "s|^(FROM[[:space:]]+wordpress:)[0-9]+(\.[0-9]+){1,3}(-php[0-9]+\.[0-9]+-fpm[[:space:]]+AS[[:space:]]+core[[:space:]]*)$|\1${WPV}\3|I" "$DF"
+
+          # Verify replacement really happened
+          if ! grep -qiE "^FROM[[:space:]]+wordpress:${WPV}-php[0-9]+\.[0-9]+-fpm[[:space:]]+AS[[:space:]]+core[[:space:]]*$" "$DF"; then
+            echo "Expected updated core FROM line not found after replacement"
+            echo "Actual matching FROM lines:"
+            grep -inE '^FROM[[:space:]]+wordpress:.*$' "$DF" || true
+            exit 1
+          fi
+
+          # Extra guard: publish line must stay versionless
+          if ! grep -qiE '^FROM[[:space:]]+wordpress:php[0-9]+\.[0-9]+-fpm[[:space:]]+AS[[:space:]]+publish[[:space:]]*$' "$DF"; then
+            echo "Publish stage line was unexpectedly modified"
+            echo "Actual matching FROM lines:"
+            grep -inE '^FROM[[:space:]]+wordpress:.*$' "$DF" || true
+            exit 1
+          fi
+
+          if git diff --quiet; then
+            echo "No diff after sed. Matching FROM lines are:"
+            grep -inE '^FROM[[:space:]]+wordpress:.*$' "$DF" || true
+            exit 1
+          fi
+
+          echo "After update, matching FROM lines are:"
+          grep -inE '^FROM[[:space:]]+wordpress:.*$' "$DF" || true
+
+          git config user.name "wp-core-bot"
+          git config user.email "wp-core-bot@users.noreply.github.com"
+
+          git add "$DF"
+          git commit -m "chore(${SITE}): bump WP base image to ${WPV} (${ENV})"
+
+          git pull --rebase origin "$BR"
+          git push origin "HEAD:$BR"

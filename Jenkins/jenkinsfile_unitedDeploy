@@ -1,0 +1,295 @@
+#!/usr/bin/env groovy
+import groovy.json.JsonSlurperClassic
+import jenkins.model.Jenkins;
+@Library('jenkins-shared-library')_
+
+properties([
+    parameters([
+      [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: 'Select deployment environment',  
+            name: 'ENV',
+            script: [$class: 'GroovyScript', 
+                fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+                script: [ classpath: [], sandbox: true, script: "return[\'Testing\',\'PreProd\',\'Production\']"]
+            ]
+        ],
+      string(name: 'chartVersion', value: "", description: 'Helm chart version to deploy. Leave empty to redeploy current version (if deployment exists).'),
+    ])
+])  
+newworkspace = "/jenkins-cet/workspace/${env.JOB_NAME}/HELM"
+pipeline { 
+      agent { 
+          node{ 
+            label 'Ansible-IT'
+            customWorkspace newworkspace
+        } 
+      }
+      options {
+        buildDiscarder(logRotator(daysToKeepStr: '60'))
+        disableConcurrentBuilds()
+        timestamps()
+        skipDefaultCheckout()
+      }
+ 
+      stages{ 
+        stage ("Checkout"){
+          steps {
+            cleanWs()
+            script{ 
+              checkout([
+              $class: 'GitSCM',
+              branches: [[name: "*/main"]], 
+              doGenerateSubmoduleConfigurations: false,
+              extensions: [], 
+              submoduleCfg: [], 
+              userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: 'https://<REPO>/_git/cet-app']]])              
+            }
+          }
+        }
+        // stage('Update Config.yaml'){
+        //   steps{
+        //     script{
+        //       // Read the Config.yaml file
+        //       script= "Reading Config.yaml file to update the chart version"
+        //       global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+        //       configFile = readFile('Config.yaml')
+        //       currentVersion = sh(script: 'awk \'/helm_version:/ {print $2}\' Config.yaml', returnStdout: true).trim()
+
+        //       echo "chartVersion: ${chartVersion}"
+        //       echo "currentVersion: ${currentVersion}"
+
+        //       if (chartVersion == currentVersion) {
+
+        //         echo "The chart version is already up to date, you are deploying exiting release."
+
+        //       }else {
+        //         // Define a regex pattern to find the helm_version
+        //         pattern = 'helm_version: "(.*)"'
+        //         replacement = "helm_version: \"${chartVersion}\""
+        //         echo "Current content:\n${configFile}"
+        //         // Replace the helm_version
+        //         def newConfigContent = configFile.replaceAll(pattern, replacement)
+        //         echo "Updated content:\n${newConfigContent}"
+
+        //         // Write the updated content back to Config.yaml
+        //         writeFile(file: 'Config.yaml', text: newConfigContent)
+
+        //         withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+        //         env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+        //         sh """
+        //         git config user.email ""
+        //         git config user.name "TFSservice"
+        //         git add .
+        //         git commit -m \"Update Chart version for deploy to ${chartVersion}\" 
+        //         """
+        //           if (params.ENV == "Testing") {
+        //             sh "git push https://CET-Tech:${TOKEN}@dev.azure.com/CET-Tech/Cet-Helm/_git/env-testing HEAD:main"
+        //           }else if (params.ENV == "PreProd") {
+        //             sh "git push https://CET-Tech:${TOKEN}@dev.azure.com/CET-Tech/Cet-Helm/_git/env-preprod HEAD:main"
+        //           }else if (params.ENV == "Production") {
+        //             sh "git push https://CET-Tech:${TOKEN}@dev.azure.com/CET-Tech/Cet-Helm/_git/env-prod HEAD:main"
+        //           }
+        //         }
+        //         script= "Version updated successfully to ${chartVersion}. Ready for deployment."
+        //         global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+        //       }
+        //     }
+        //   }
+        // }
+        stage('Prepare values.yaml file for environment') {
+          steps{
+            script{
+              echo "ENV: ${ENV}"
+              if (ENV == "Testing") {
+                helmPath = "${WORKSPACE}/ENV/Testing"
+                valuesFile = "values-testing.yaml"
+              }else if (ENV == "PreProd") {
+                helmPath = "${WORKSPACE}/ENV/Preprod"
+                valuesFile = "values-preprod.yaml"               
+            }else if (ENV == "Production") {
+                helmPath = "${WORKSPACE}/ENV/Production"
+                valuesFile = "values-prod.yaml"
+            }
+            sh "ls -la"
+            }
+          }
+        }
+        stage ('Extract parameters from values.yaml'){
+          steps {
+            script { 
+              dir (helmPath){
+                script= "Reading Config.yaml file to extract parameters for deployment."
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                configFile = readYaml file: 'Config.yaml'
+                clusterName = configFile.cluster_name
+                resourceGroup = configFile.cluster_resource_group
+                chartName = configFile.helm_chart_name
+
+                println "clusterName: ${clusterName}"
+                println "resourceGroup: ${resourceGroup}"
+                println "chartName: ${chartName}"
+              }        
+            }
+          }
+        }
+        stage ('Deploy helm chart') {
+          steps {
+            script {  
+              dir (helmPath){ 
+                withCredentials([usernamePassword(credentialsId: "AdminUserTFS", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+                sh "az login -u ${USERNAME} -p \'${PASSWORD}\' --output none"
+                }
+                  sh "az account set --subscription "
+                  sh "az acr login -n nairobipoccontainerreg.azurecr.io"
+                  sh "az aks get-credentials --resource-group ${resourceGroup} --name ${clusterName} --overwrite-existing"
+                
+                  def currentVersion = sh(script: "helm ls | grep ${chartName} | awk '{print \$9}' | sed 's/${chartName}-//' || echo 'Not Found'", returnStdout: true).trim()
+                  env.CURRENT_VERSION = currentVersion
+                  
+                  // If chartVersion is empty, use currentVersion
+                  if (!chartVersion || chartVersion.trim() == "") {
+                    if (currentVersion != 'Not Found') {
+                      chartVersion = currentVersion
+                      echo "chartVersion was empty, setting it to current deployed version: ${chartVersion}"
+                    } else {
+                      error "chartVersion is empty and no current deployment found. Please provide a version."
+                    }
+                  }
+                  
+                  // Validate version format for Production
+                  if (ENV == 'Production'){
+                    script= "Validating version format"
+                    global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                    if (!(chartVersion ==~ /^\d+\.\d+\.\d+$/)) {
+                      error "Invalid version format. Version must be in the format x.x.x"
+                    }else {
+                      echo "Version format is valid, Chart version: ${chartVersion}"
+                    }
+                  }
+                  
+                  echo "=== VERSION COMPARISON ==="
+                  echo "Current deployed version: ${currentVersion}"
+                  echo "Target deployment version: ${chartVersion}"
+                  
+                  if (currentVersion != 'Not Found') {
+                    echo "Deployment will upgrade: ${currentVersion} → ${chartVersion}"
+                  } else {
+                    echo "This will be a new deployment (no existing release found)"
+                  }
+                  echo ""
+                  echo "Analyzing changes that will be applied..."
+                  sh """
+                  # Show what changes will be made
+                  helm diff upgrade ${chartName} oci://ACR/${chartName} --version ${chartVersion} -f ${valuesFile} --allow-unreleased --context 0 || echo "Helm diff completed (may show as failed for new deployments)"
+                  """
+                  echo ""
+                  echo "=== END VERSION COMPARISON ==="
+
+                // User confirmation before deployment
+                if (currentVersion != 'Not Found') {
+                  input message: "Review the version comparison and diff above. Do you want to proceed with the deployment from ${currentVersion} to ${chartVersion}?", ok: 'Deploy Now'
+                } else {
+                  input message: "Review the diff above. This will be a new deployment. Do you want to proceed with deploying version ${chartVersion}?", ok: 'Deploy Now'
+                }
+
+                script= "Deploying to AKS cluster ${clusterName}"
+                global_prettyPrintWithHeaderAndFooter header: "Message", body: script
+
+                  sh "helm upgrade -i ${chartName} oci://ACR/${chartName} --version ${chartVersion} -f ${valuesFile} --force"
+              }
+            }                        
+          }
+        }
+        stage ('Update version in repo') {
+          steps {
+            script {
+              if (ENV == "Testing") {
+                sh "rm -rf ENV/Testing/currentVersion.txt"
+                sh "echo -e \"${chartVersion}\" >> ENV/Testing/currentVersion.txt"
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  if git diff --cached --quiet; then
+                    echo "No changes to commit for Testing environment. Current version is already ${chartVersion}."
+                  else
+                    git commit -m \"Update current version in ENV ${chartVersion}\"
+                    git push https://:${TOKEN}@REPO/_git/cet-app HEAD:main
+                    echo "Successfully updated Testing environment version to ${chartVersion}."
+                  fi
+                  """
+                }
+              }else if (ENV == "PreProd") {
+                sh "rm -rf ENV/Preprod/currentVersion.txt"
+                sh "echo -e \"${chartVersion}\" >> ENV/Preprod/currentVersion.txt"
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  if git diff --cached --quiet; then
+                    echo "No changes to commit for PreProd environment. Current version is already ${chartVersion}."
+                  else
+                    git commit -m \"Update current version in ENV ${chartVersion}\"
+                    git push https://:${TOKEN}@d<REPO>/_git/cet-app HEAD:main
+                    echo "Successfully updated PreProd environment version to ${chartVersion}."
+                  fi
+                  """
+                }            
+              }else if (ENV == "Production") {
+                sh "rm -rf ENV/Production/currentVersion.txt"
+                sh "echo -e \"${chartVersion}\" >> ENV/Production/currentVersion.txt"
+                withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+                env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+                  sh """
+                  git config user.email ""
+                  git config user.name "TFSservice"
+                  git add .
+                  if git diff --cached --quiet; then
+                    echo "No changes to commit for Production environment. Current version is already ${chartVersion}."
+                  else
+                    git commit -m \"Update current version in ENV ${chartVersion}\"
+                    git push https://:${TOKEN}@REPO/_git/cet-app HEAD:main
+                    echo "Successfully updated Production environment version to ${chartVersion}."
+                  fi
+                  """
+                }
+              }
+            }
+          }
+        }
+      }  
+  post {
+		always {
+       setBuildDescription (ENV, chartVersion)                      	
+    }
+    success {
+      script{
+        println "Success"
+        emailext subject: "Pipeline ${env.JOB_NAME} was Successful: ${chartVersion}", 
+        body: "The version ${chartVersion} was successfuly deployed to ${ENV} cluster.", 
+        to: '',
+        attachLog: true,
+        compressLog: true
+      }    
+    }
+    failure {
+      script {
+        println "Failed"
+        emailext subject: "Pipeline ${env.JOB_NAME} Failed", 
+        body: "The job failed, please see log.", 
+        to: '',
+        attachLog: true,
+        compressLog: true
+      }
+    }
+	}      
+}
+def setBuildDescription (ENV, chartVersion) {
+  currentBuild.description = "ENV: ${ENV}\nversion: ${chartVersion}"                 
+}

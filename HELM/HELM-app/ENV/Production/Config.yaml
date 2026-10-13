@@ -1,0 +1,13 @@
+################## Azure configs ##################
+
+# Account info
+azure_subscription_id: ""
+cluster_name: K8s-Prod
+cluster_resource_group: AKS
+
+################## Application configs ##################
+
+# Application deployment info
+helm_version: "1.0.0"
+helm_chart_name: app
+helm_values_file: values-prod.yaml

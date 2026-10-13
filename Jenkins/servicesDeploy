@@ -1,0 +1,1053 @@
+#!/usr/bin/env groovy
+import groovy.json.JsonSlurperClassic
+import java.text.SimpleDateFormat                    
+import org.apache.commons.lang.RandomStringUtils
+import org.codehaus.groovy.runtime.StackTraceUtils
+import jenkins.model.Jenkins;
+@Library('jenkins-shared-library')_
+
+separatorStyle = "border-width: 0"
+buildHeaderStyle = """
+     background-color: #4CFFFF; text-align: center; padding: 4px; color: #343434; font-size: 22px; font-weight: normal; 
+     text-transform: uppercase; font-family: 'Orienta', sans-serif; letter-spacing: 1px; font-style: italic;
+"""
+deployHeaderStyle = """
+     background-color: #BF3939; text-align: center; padding: 4px; color: #343434; font-size: 22px; font-weight: normal; 
+     text-transform: uppercase; font-family: 'Orienta', sans-serif; letter-spacing: 1px; font-style: italic;
+"""
+
+properties([
+  parameters([
+    separator(name: "BuildSeparator", sectionHeader: "Build", separatorStyle: separatorStyle, sectionHeaderStyle: buildHeaderStyle),
+    string(name: 'PushBRANCH', value: ""), 
+    booleanParam(name: 'DISABLE_NOTIFICATION', defaultValue: false, description: 'Disable email notification on failure'),
+    choice(name: 'versionType', choices: ['', 'major', 'minor', 'patch'], description: 'The type of version bump to perform (Optional)', defaultValue: ''),
+    [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: 'choosing the servicename to build',  
+      name: 'servicename', 
+        script: [$class: 'GroovyScript', 
+          fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']' ], 
+          script: [
+            classpath: [], 
+            sandbox: true, 
+            script: '''
+            def serviceNames = ['learning-api', 'infinity', 'infinityapi', 'Cet.XApi.Function', 'Cet.FileProxy.Api', 'TeacherReportsApi', 'Cet.Authorization.Api', 'Cet.CatalogSearchApi', 'BigBlueButton', 'CatalogClient', 'Asset-AI', 'Cet.Catalog.Api', 'BotitService', 'AccountServices', 'AccountServicesApi', 'MagnilearnService', 'Cet.Activities', 'moodle_azure_2021','Scratch', 'ChatbotAPI', 'LO-Themes', 'TreeService', 'Cet.Managment.API', 'AdminSite', 'ContentService', 'DashboardAPIService', 'dashboardEventHandlerApi', 'DataCoordinationService','NairobiApiService','NairobiWebApp','RecommendationsService', 'ServiceBusApi', 'StudentsService', 'StudentsWebApp', 'TeachersService', 'ApiGateway', 'APIGW', 'BigDataApiService', 'LO-Services', 'LO-Resources', 'AccessMngApi', 'CookiesApiService', 'AutomationAPI', 'LearningTogether', 'LearningTogetherAS', 'LearningTogetherAC', 'WhatsAppService', 'HendrXPoc', 'collaboration', 'learning', 'learning-collaboration', 'ProductPlayerServices', 'LmsApiService', 'ProductsApiService', 'ActivityService', 'LearningService', 'Dashboard', 'EnvironmentService', 'TermsApi', 'RecommendationsApi', 'SpeechAceService', 'ServiceBusMetricsService', 'FolderService', 'DocumentService']
+
+            def sortedServiceNames = serviceNames.sort { a, b -> a.toLowerCase() <=> b.toLowerCase() }
+
+            return sortedServiceNames
+            '''
+          ]
+        ]
+    ],
+    choice(
+      name: 'infinityAppSelection',
+      choices: ['frontend', 'backend'],
+      description: 'Used only in infinity - choose front or back to build'
+    ),
+   separator(name: "DeploySeparator", sectionHeader: "Deploy", separatorStyle: separatorStyle, sectionHeaderStyle: deployHeaderStyle),
+   [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: 'Do you wish to deploy the service to devENV?',  
+      name: 'Deploy', 
+      script: [$class: 'GroovyScript', 
+            fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+            script: [ classpath: [], sandbox: true, script: "return[\'No\',\'Yes\']"]
+      ]
+   ],
+    [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: 'choosing the servicename to build',  
+      name: 'pushService', 
+        script: [$class: 'GroovyScript', 
+          fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']' ], 
+          script: [
+            classpath: [], 
+            sandbox: true, 
+            script: '''
+            def serviceNames = ['','learning-api', 'infinity', 'infinityapi', 'xapifunction', 'fileproxyapi', 'teacherreportsapi', 'code', 'authzapi', 'catalogsearchapi', 'bigbluebutton', 'catalogadmin', 'activitycontextsapi', 'accessmngapi', 'accountservices', 'accountservicesapi', 'activityapi', 'adminsite', 'apigateway','bigdataapi', 'botitservice', 'chatbotapi', 'catalogapi', 'collaboration', 'contentapi', 'cookiesapi', 'dashboard', 'dashboardapi','dashboardeventhandlerapi','documentservice', 'environment', 'folderservice', 'hendrxpoc', 'identitymanagementapi', 'jobsapi', 'itestai', 'learning', 'learning-collaboration', 'learningapi', 'lmsapi', 'loresources', 'lothemes', 'magnilearnservice', 'loservices', 'nairobiapi', 'nairobigateway', 'nairobirecommendationsapi', 'nairobisite', 'productplayerservices', 'productsapi', 'recommendationsapi', 'servicebusmetrics', 'speechace', 'studentsapi', 'studentswebapp', 'teachersapi', 'termsapi', 'treeservice']
+
+            def sortedServiceNames = serviceNames.sort { a, b -> a.toLowerCase() <=> b.toLowerCase() }
+
+            return sortedServiceNames
+            '''
+          ]
+        ]
+    ],
+   //string(name: 'pushVersion', value: "", description: 'The version of the container to deploy'), 
+    [$class: 'CascadeChoiceParameter', choiceType: 'PT_SINGLE_SELECT', description: '',  
+      name: 'pushVersion',
+         referencedParameters: 'pushService',  
+         script: [$class: 'GroovyScript', fallbackScript: [ classpath: [], sandbox: true, script: 'return[\'error\']'], 
+         script: [classpath: [], sandbox: true, 
+            script: """
+            import jenkins.model.*
+            import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials
+              credentialsId = '1d641054-6340-40a3-932d-8d01029eafaf'
+              creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(StandardUsernamePasswordCredentials.class, Jenkins.instance, null, null).find{it.id == credentialsId}
+              user=""
+              pass=creds.password
+
+            
+            "az login -u \${user} -p \${pass} --output none".execute().text
+               if (pushService.isEmpty()) {
+                     return ['Select a service first']
+               }
+               def versions = "az acr repository show-tags --name ACR --repository \${pushService} --output tsv".execute().text.split() as List
+               return versions                 
+               """
+                ]
+            ]
+        ], 
+  ])
+])
+
+newworkspace = "/home/cet/workspace/CETservicesDeploymentBuild/${env.BUILD_NUMBER}"
+
+pipeline { 
+  agent {
+    node{
+      label 'devbuild-kub'
+      customWorkspace newworkspace
+    }
+  } 
+  options {
+      buildDiscarder(logRotator(daysToKeepStr: '60'))
+      timestamps()
+      skipDefaultCheckout()
+  }
+  stages{                
+    stage('Prep') {
+     when {
+         expression { params.Deploy == 'No'}
+      }  
+      steps {
+        cleanWs()
+        script{
+          if(params.PushBRANCH == ''){
+            jsn = new JsonSlurperClassic().parseText(PAYLOAD)
+            developerEmail = jsn['resource']['lastMergeCommit']['committer']['email']
+            status = jsn['resource']['status']
+            pullRequestId = jsn['resource']['pullRequestId']
+            prUrl = jsn['message']['markdown']
+            nairobiservicename = jsn['resource']['repository']['name']
+            print nairobiservicename
+            projectid = jsn['resource']['repository']['project']['name']
+            print projectid
+            println status
+            println pullRequestId
+            println prUrl
+            switch(status){
+              case 'active':
+                jsn = new JsonSlurperClassic().parseText(PAYLOAD)
+                PushBRANCH = jsn['resource']['sourceRefName'].trim().replace("refs/heads/","")
+                  if(PushBRANCH.startsWith('cet_') || PushBRANCH == 'cet-develop' || PushBRANCH.contains('cet-release')){
+                    nairobiservicename = 'learning'}
+                  else{
+                    nairobiservicename = jsn['resource']['repository']['name'] 
+                  }
+                nametag = jsn['resource']['title']
+                break
+              case 'completed':
+                jsn = new JsonSlurperClassic().parseText(PAYLOAD)
+                PushBRANCH = jsn['resource']['targetRefName'].trim().replace("refs/heads/","")
+                  if(PushBRANCH.startsWith('cet_') || PushBRANCH == 'cet-develop' || PushBRANCH == 'cet-main' || PushBRANCH.contains('cet-release')){
+                    nairobiservicename = 'learning'}
+                  else{
+                    nairobiservicename = jsn['resource']['repository']['name'] 
+                  }
+                nametag = jsn['resource']['title']
+                print nametag
+                objectid = jsn['resource']['lastMergeSourceCommit']['commitId']
+                print objectid
+                commitId = jsn['resource']['lastMergeTargetCommit']['commitId']
+                print commitId
+                break
+            }
+          }else{
+            PushBRANCH = params.PushBRANCH
+            nairobiservicename = params.servicename
+            developerEmail = ''
+            status = 'completed'
+          }
+          println developerEmail
+          println PushBRANCH    
+        }
+      }
+    }
+
+    stage ("Checkout"){
+      when {
+         expression { params.Deploy == 'No' }
+      }  
+      steps {
+        script{
+          deleteDir()
+          checkoutservice(nairobiservicename:nairobiservicename)
+            if(nairobiservicename == 'APIGW'){
+              sh "sed -i \'s/-p:DefineConstants=NAIROBI//\' Dockerfile"
+            }
+            if(nairobiservicename == 'StudentsWebApp'){
+              if(PushBRANCH == 'master' && status == "completed" || PushBRANCH == 'develop' && status == "active"){
+                sh "sed -i \'s/-env//\' Dockerfile"
+                sh "cat Dockerfile"
+              }else{
+                sh "sed -i \'s/env/testing/\' Dockerfile"
+                sh "cat Dockerfile"
+              }
+            }
+            if(nairobiservicename == 'LearningTogether'){
+              if(PushBRANCH == 'master' && status == "completed" || PushBRANCH == 'develop' && status == "active"){
+                sh "sed -i \'s/ENV/Production/\' Dockerfile"
+                sh "cat Dockerfile"
+              }else{
+                sh "sed -i \'s/ENV/Testing/\' Dockerfile"
+                sh "cat Dockerfile"
+              }
+            }
+            if(nairobiservicename == 'LearningTogetherAS'){
+              if(PushBRANCH == 'master' && status == "completed" || PushBRANCH == 'develop' && status == "active"){
+                sh "sed -i \'s/ENV/Production/\' DockerfileAS"
+                sh "cat DockerfileAS"
+                sh "rm -f Dockerfile"
+                sh "mv DockerfileAS Dockerfile"
+              }else{
+                sh "sed -i \'s/ENV/Testing/\' DockerfileAS"
+                sh "cat DockerfileAS"
+                sh "rm -f Dockerfile"
+                sh "mv DockerfileAS Dockerfile"
+              }
+            }
+            if(nairobiservicename == 'collaboration' || nairobiservicename == 'learning-collaboration'){
+              sh "mv Dockerfile.prod.collaboration Dockerfile"
+            }
+            if(nairobiservicename == 'HendrXPoc' || nairobiservicename == 'learning'){    
+              sh "mv Dockerfile.prod.hendrx Dockerfile"
+            }
+            if(nairobiservicename == 'learning-api'){
+              sh "mv Dockerfile.prod.api Dockerfile"
+            }
+            if(nairobiservicename == 'LearningTogetherAC'){    
+              if(PushBRANCH == 'master' && status == "completed" || PushBRANCH == 'develop' && status == "active"){
+                sh "rm -f Dockerfile"
+                sh "mv DockerfileAC Dockerfile"
+                AdminClient = "/home/cet/workspace/CETservicesDeploymentBuild/${env.BUILD_NUMBER}/AdminClient"
+                  dir(AdminClient){
+                    sh "rm -f .env"
+                    sh "rm -f .env.testing"
+                    sh "rm -f .env.development"
+                    sh "mv .env.production .env"
+                    sh "cat .env"
+                  }
+                }else{   
+                  sh "rm -f Dockerfile"
+                  sh "mv DockerfileAC Dockerfile"
+                  AdminClient = "/home/cet/workspace/CETservicesDeploymentBuild/${env.BUILD_NUMBER}/AdminClient"
+                    dir(AdminClient){
+                        sh "rm -f .env"
+                        sh "rm -f .env.production"
+                        sh "rm -f .env.development"
+                        sh "mv .env.testing .env"
+                        sh "cat .env"
+                    }
+                }
+            }
+          NEW_COMMIT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+          println NEW_COMMIT_SHA
+          FULL_COMMIT_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+
+           sonarScan = ''
+             if(nairobiservicename == 'LO-Services' || nairobiservicename == 'DocumentService' || nairobiservicename == 'ProductPlayerServices' || nairobiservicename == 'EnvironmentService' || nairobiservicename == 'TeachersService' || nairobiservicename == 'dashboardEventHandlerApi' || nairobiservicename == 'StudentsService' || nairobiservicename == 'DashboardAPIService' || nairobiservicename == 'NairobiApiService' || nairobiservicename == 'ContentService' || nairobiservicename == 'ApiGateway' || nairobiservicename == 'BigDataApiService' || nairobiservicename == 'AccessMngApi' || nairobiservicename == 'Cet.Managment.API' || nairobiservicename == 'TreeService' || nairobiservicename == 'LmsApiService' || nairobiservicename == 'LearningService' || nairobiservicename == 'Dashboard' || nairobiservicename == 'LO-Resources'){
+               sonarScan = 'true'
+             } 
+        }           
+      }
+    }
+    stage('Orca Security Scan') {
+      when {
+         expression { params.Deploy == 'No' && nairobiservicename != 'Asset-AI'}
+      }  
+      steps {
+        script {
+          PROJECT_KEY = ''
+          withCredentials([string(credentialsId: 'ORCA_SECURITY_API_TOKEN', variable: 'TOKEN')]) {
+            sh """
+                apt update && apt install -y curl
+                curl -sfL 'https://raw.githubusercontent.com/orcasecurity/orca-cli/main/install.sh' | bash
+                orca-cli -p "${PROJECT_KEY}" --api-token "${TOKEN}" iac scan --path ${WORKSPACE}
+
+                orca-cli -p "${PROJECT_KEY}" --api-token "${TOKEN}" fs scan --path ${WORKSPACE}
+
+                orca-cli -p "${PROJECT_KEY}" --api-token "${TOKEN}" secrets scan --disable-git-scan --path ${WORKSPACE}
+            """
+          }
+        }
+      }
+    }
+    stage('SonarQube') {
+      when {
+         expression { params.Deploy == 'No' && sonarScan == 'true' }
+      }  
+     steps {
+        script {
+        def sonarResult = build job: "sonarQubeScan",
+            parameters: [ 
+            string(name: 'PushBRANCH', value: PushBRANCH),
+            string(name: 'servicename', value: nairobiservicename) 
+            ],
+            propagate: false
+          if (sonarResult.result == 'FAILURE') {
+            echo "SonarQube scan failed, but continuing pipeline."
+          }
+        }
+      }
+    }
+    stage ('Build and Publish Docker') {
+      when {
+      expression { params.Deploy == 'No' }
+      }
+      steps {
+        script {
+          sh "ls -l"
+          withCredentials([usernamePassword(credentialsId: "", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+            sh "az login -u ${USERNAME} -p \'${PASSWORD}\'"
+          }
+          sh "az account set --subscription "
+          dockername = kubname(nairobiservicename:nairobiservicename)
+            println dockername
+            println "parsing the version"
+            // jsonContent = readFile("version.json")
+          def repoExists = sh(script: "az acr repository list --name ACR --output tsv | grep -q '^${dockername}\$'", returnStatus: true) == 0
+    
+           if (repoExists) {
+               latestVersion = sh(script:"az acr repository show-tags --name ACR --repository ${dockername} --orderby time_desc --output tsv | sort -V | tail -1", returnStdout: true).trim().replace("v","")
+              } else {
+               println "Repository ${dockername} does not exist. Starting with version 0.0.0"
+               latestVersion = "0.0.0"
+              }
+            // Initialize versioning variable
+            def versioning = latestVersion
+            
+            // Set default versionType if not provided by user
+            if (versionType == ''){
+              if (PushBRANCH.startsWith('cet_') || PushBRANCH.contains('release') || PushBRANCH.contains('cet-release') && status == 'active') {
+                versionType = 'minor'
+              } else if (PushBRANCH == 'master' || PushBRANCH == 'develop' && status == 'completed') {
+                versionType = 'patch'
+              } else {
+                versionType = 'patch'
+              }
+            }
+            
+            // Log the version type being used
+            println "Using version bump type: ${versionType}"
+
+            // Always bump the version according to versionType
+            println latestVersion
+            versioning = globalversionBump(currentVersion: latestVersion, versionBumpType: versionType)
+            sh "rm -f version.json || true"
+            
+            sh "touch version.json"
+
+            def amap = ['version': "${versioning}"]     
+            writeJSON file: 'version.json', json: amap
+
+            def readJason = readFile('version.json')
+            echo "Read from JSON file: ${readJason}"   
+
+            VERSION = "v${versioning}"
+            println VERSION
+            IMAGE = "ACR/${dockername}"
+            PushBRANCH = "${PushBRANCH}".toLowerCase()
+            checkacrtobuild(VERSION : VERSION ,dockername : dockername, branch : PushBRANCH, commit : FULL_COMMIT_SHA)
+
+            runLTjobs(PushBRANCH : PushBRANCH , nairobiservicename : nairobiservicename )
+        }
+      }
+    }
+    stage ('Deploy unmanaged apps'){
+      when {
+        expression { params.Deploy == 'No' } 
+      }
+      steps {
+        script {
+         if(nairobiservicename == 'LearningTogether' || nairobiservicename == 'LearningTogetherAS' || nairobiservicename == 'LearningTogetherAC' || nairobiservicename == 'WhatsAppService'){
+          checkout([$class: 'GitSCM', branches: [[name: '*/main']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf',url: 'https://<REPO>/_git/JnkinsfileNairobi']]])
+            withCredentials([usernamePassword(credentialsId: "", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+              sh "az login -u ${USERNAME} -p \'${PASSWORD}\'"
+            }
+            sh "az account set --subscription "
+          if(PushBRANCH == 'develop' && status == 'completed'){
+            println "Deploying ${dockername} Docker"
+            sh "az aks get-credentials --resource-group AKS --name Nairobi-DEV-TEST-EA --overwrite-existing"
+            sh "sed -i \'s/dockername/${dockername}/\' deployment.yaml"
+            sh "sed -i \'s/APP/${dockername}/\' deployment.yaml"
+            sh "sed -i \'s/latest/${VERSION}/\' deployment.yaml"  
+
+            sh "kubectl apply -f deployment.yaml" 
+
+          }else if (PushBRANCH == 'master' && status == 'completed'){
+            println "Deploying ${dockername} Docker"
+            sh "cat /etc/hosts"
+            sh "az aks get-credentials --resource-group AKS --name CET-K8s-Prod --overwrite-existing"
+            sh "sed -i \'s/dockername/${dockername}/\' deploymentprod.yaml"
+            sh "sed -i \'s/APP/${dockername}/\' deploymentprod.yaml"
+            sh "sed -i \'s/latest/${VERSION}/\' deploymentprod.yaml"
+            sh "sed -i \'s/REP/1/\' deploymentprod.yaml"
+
+            sh "kubectl apply -f deploymentprod.yaml"
+          }else{
+            currentBuild.result = 'SUCCESS'
+            return 
+          }
+         }else{
+           return
+         }
+        }
+      }
+    } 
+    stage ('Deploy to Dev-IL'){
+      when {
+        expression {params.Deploy == 'Yes'}
+      }
+      steps {
+        cleanWs()
+        script{
+          nairobiservicename = 'Deploy'
+          status = 'completed'
+          dockername = "${params.pushService}"
+          VERSION = "${params.pushVersion}"
+          println dockername
+          println VERSION
+          checkout([$class: 'GitSCM', branches: [[name: '*/main']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf',url: 'https://<REPO>/Helm/_git/jenkinsHelm']]])
+          withCredentials([usernamePassword(credentialsId: "", usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+          sh "az login -u ${USERNAME} -p \'${PASSWORD}\'"
+          }
+          sh "az account set --subscription "
+            sh "az aks get-credentials --resource-group AKS-IL --name CET-K8s-DEV-TEST --overwrite-existing"
+            if(dockername == 'apigateway'){
+              sh "sed -i \'s/dockername/${dockername}/\' deploymentapigwtest.yaml"
+              sh "sed -i \'s/REP/${dockername}/\' deploymentapigwtest.yaml"
+              sh "sed -i \'s/APP/${dockername}/\' deploymentapigwtest.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymentapigwtest.yaml"
+              sh "sed -i \'s/10.11.27.5/10.11.40.6/\' deploymentapigwtest.yaml"
+            }else if(dockername == 'hendrxpoc'){
+              sh "sed -i \'s/dockername/${dockername}/\' deploymenthendrxpoc.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymenthendrxpoc.yaml"  
+            }else if (dockername == 'collaboration'){
+              sh "sed -i \'s/dockername/${pushService}/\' deploymentcollaboration.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymentcollaboration.yaml"
+            }else if (dockername == 'learning-api'){
+              sh "sed -i \'s/dockername/${dockername}/\' deploymentlearningapi.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymentlearningapi.yaml"
+            }else if (dockername == 'amat'){
+              sh "sed -i \'s/dockername/${pushService}/\' deploymentamat.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymentamat.yaml"
+            }else if (dockername == 'identitymanagementapi'){
+              sh "sed -i \'s/dockername/${pushService}/\' deploymentcetidentitymanagmentapi.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deploymentcetidentitymanagmentapi.yaml"
+            }else if (dockername == 'moodle'){
+              sh "sed -i \'s/dockername/${dockername}/\' moodledeployment.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' moodledeployment.yaml"
+            }else if (dockername == 'learning'){
+              sh "sed -i \'s/dockername/${dockername}/\' cet-hendrx-deployment-testing.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' cet-hendrx-deployment-testing.yaml"
+            }else if (dockername == 'learning-collaboration'){
+              sh "sed -i \'s/dockername/${dockername}/\' cet-collaboration-deployment-testing.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' cet-collaboration-deployment-testing.yaml"
+            }else if (dockername == 'itestai'){
+              sh "sed -i \'s/dockername/${dockername}/\' itestaideployment.yaml"
+              sh "sed -i \'s/APP/${dockername}/\' itestaideployment.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' itestaideployment.yaml"
+            }else if (dockername == 'infinity'){
+              sh "sed -i \'s/dockername/${dockername}/\' infinitydeployment.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' infinitydeployment.yaml"
+            }else if (dockername == 'infinityapi'){
+              sh "sed -i \'s/dockername/${dockername}/\' infinitydeploymentapi.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' infinitydeploymentapi.yaml"
+            }else{
+              println "Deploying ${dockername} Docker"
+              sh "sed -i \'s/dockername/${dockername}/\' deployment.yaml"
+              sh "sed -i \'s/APP/${dockername}/\' deployment.yaml"
+              sh "sed -i \'s/latest/${VERSION}/\' deployment.yaml"
+              if(dockername != 'nairobigateway'){
+                sh "sed -i \'s/1.1.1.1/51.4.73.37/\' deployment.yaml"
+                sh "sed -i \'s/placeholder/nairobigateway.testing/\' deployment.yaml" 
+                sh "sed -i \'s/blabla/apigateway.testing/\' deployment.yaml"
+              }
+              if(dockername == 'teachersapi' || dockername == 'bigdataapi' || dockername == 'contentapi' || dockername == 'cookiesapi'){
+                sh "sed -i \'s/kiki/mybagapi.testing/\' deployment.yaml" 
+              }                                
+              if(dockername == 'lmsapi'){
+                sh "sed -i \'s/1.1.1.1/172.17.30.30/\' deployment.yaml"
+                sh "sed -i \'s/placeholder/btestingsql/\' deployment.yaml"
+              }
+              if(dockername == 'accessmngapi'){
+                sh "sed -i \'s/2.2.2.2/10.11.40.6/\' deployment.yaml"
+                sh "sed -i \'s/baba/productplayer.testing/\' deployment.yaml"
+              }
+              if(dockername == 'dashboardapi'){
+                sh "sed -i \'s/kiki/documentservice.testing/\' deployment.yaml"
+                sh "sed -i \'s/sisi/loservices.testing/\' deployment.yaml"
+              }else if(dockername == 'loresources'){
+                sh "sed -i \'s/proxygateway.testing/mybagapi.testing/\' deploymentprod.yaml"
+                sh "sed -i \'s/172.17.31.32/10.11.40.6/\' deploymentprod.yaml"
+              }else if(dockername == 'dashboardeventhandlerapi'){
+                sh "sed -i \'s/kiki/mybagapi.testing/\' deployment.yaml"
+                sh "sed -i \'s/sisi/documentservice.testing/\' deployment.yaml"
+              } 
+            }
+            if(dockername == 'apigateway'){
+              sh "kubectl apply -f deploymentapigwtest.yaml"
+            }else if(dockername == 'hendrxpoc'){
+              sh "kubectl apply -f deploymenthendrxpoc.yaml"
+            }else if(dockername == 'learning-api'){
+              sh "kubectl apply -f deploymentlearningapi.yaml"
+            }else if(dockername == 'collaboration'){
+              sh "kubectl apply -f deploymentcollaboration.yaml"
+            }else if(dockername == 'learning'){ 
+              sh "kubectl apply -f cet-hendrx-deployment-testing.yaml"
+            }else if(dockername == 'learning-collaboration'){
+              sh "kubectl apply -f cet-collaboration-deployment-testing.yaml"
+            }else if(dockername == 'identitymanagementapi'){
+              sh "kubectl apply -f deploymentcetidentitymanagmentapi.yaml"
+            }else if (dockername == 'moodle'){
+              sh "kubectl apply -f moodledeployment.yaml"
+            }else if (dockername == 'itestai'){
+              sh "kubectl apply -f itestaideployment.yaml"
+            }else if (dockername == 'infinity'){
+              sh "kubectl apply -f infinitydeployment.yaml"
+            }else if (dockername == 'infinityapi'){
+              sh "kubectl apply -f infinitydeploymentapi.yaml"
+            }else{    
+              sh "kubectl apply -f deployment.yaml"
+            } 
+        }
+      }
+    } 
+  }
+  post{
+    always {
+      script{
+         if (params.Deploy == 'Yes'){
+            setBuildDescriptionDeploy (nairobiservicename, pushService, pushVersion)  
+         }else{
+           // Check if VERSION exists before using it
+           if (binding.hasVariable('VERSION')) {
+             setBuildDescription (nairobiservicename, PushBRANCH, VERSION, binding.hasVariable('dockername') ? dockername : "unknown")
+           } else {
+             setBuildDescription (nairobiservicename, PushBRANCH, "unknown", binding.hasVariable('dockername') ? dockername : "unknown")
+           }
+         } 
+      } 
+    }
+
+    success {
+      script{
+        if (status == 'active') {    
+            withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+            env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+            sh "az repos pr set-vote --id ${pullRequestId} --vote approve"
+              if(nairobiservicename == 'HendrXPoc' || nairobiservicename == 'collaboration'){
+                  echo "skiping description"
+              }else{
+                  sh "az repos pr update --id ${pullRequestId} --description 'Image: ${IMAGE}:${VERSION}' 'Build: ${BUILD_URL}'>/dev/null"
+              }
+            }
+        } else {        
+          return
+        }
+      }    
+    }
+    failure {
+      script {
+        if (params.DISABLE_NOTIFICATION) {
+            println "failure"
+        } else {
+          if (status == 'active'){ 
+            withCredentials([string(credentialsId: 'az_devops_personal_access_token', variable: 'TOKEN')]){
+            env.AZURE_DEVOPS_EXT_PAT = "$TOKEN"
+            sh "az repos pr set-vote --id ${pullRequestId} --vote reject"
+            }
+          }else {
+            return
+          }
+          global_sendEmailNotification to: developerEmail, subject: "${JOB_NAME} - Failed", body: "BUILD URL: ${BUILD_URL}"
+        }			
+      }
+    }
+  }      
+} 
+def setBuildDescription (nairobiservicename, branch, version, container) {
+  def safeDockername = binding.hasVariable('dockername') ? dockername : container
+  currentBuild.description = "nairobiservicename: ${nairobiservicename}\nbranch: ${branch}\nversion: ${version}\ncontainer: ${safeDockername}"
+} 
+def setBuildDescriptionDeploy (nairobiservicename, dockername, version) {
+  currentBuild.description = "nairobiservicename: ${nairobiservicename}\nservicename: ${pushService}\nversion: ${pushVersion}"
+}
+
+def kubname(Map config = [:]){
+  nairobiservicename  = config.get('nairobiservicename')
+    if(nairobiservicename == 'NairobiWebApp'){
+      dockername = 'nairobisite'
+    }else if(nairobiservicename == 'DataCoordinationService'){
+      dockername = 'jobsapi'
+  }else if(nairobiservicename == 'infinity' && params.infinityAppSelection == 'frontend'){
+    // Build frontend first
+    dockername = 'infinity'
+    // Trigger backend build after frontend
+    build job: "cetAppsBuild", wait: false, parameters: [
+        string(name: 'PushBRANCH', value: PushBRANCH),
+        string(name: 'servicename', value: 'infinity'),
+        string(name: 'infinityAppSelection', value: 'backend')
+    ]
+  }else if(nairobiservicename == 'infinity' && params.infinityAppSelection == 'backend'){
+    // Build backend
+    dockername = 'infinityapi'
+  }else if(nairobiservicename == 'ApiGateway'){
+      dockername = 'nairobigateway'
+    }else if(nairobiservicename == 'APIGW'){
+      dockername = 'apigateway'
+    }else if(nairobiservicename == 'LO-Services'){
+      dockername = 'loservices'
+    }else if(nairobiservicename == 'ServiceBusMetricsService'){
+      dockername = 'servicebusmetrics'
+    }else if(nairobiservicename == 'LO-Resources'){
+      dockername = 'loresources'
+    }else if (nairobiservicename == 'RecommendationsService'){
+      dockername = 'nairobirecommendationsapi'
+    }else if (nairobiservicename == 'HendrXPoc'){
+      dockername = 'hendrxpoc'
+    }else if (nairobiservicename == 'collaboration'){
+      dockername = 'collaboration'
+    }else if (nairobiservicename == 'learning-api'){
+      dockername = 'learning-api'
+    }else if (nairobiservicename == 'ProductPlayerServices'){
+      dockername = 'productplayerservices'
+    }else if (nairobiservicename == 'Dashboard'){
+      dockername = 'dashboard'
+    }else if (nairobiservicename == 'SpeechAceService'){
+      dockername = 'speechace'
+    }else if (nairobiservicename == 'EnvironmentService'){
+      dockername = 'environment'
+    }else if (nairobiservicename == 'DocumentService'){
+      dockername = 'documentservice'
+    }else if (nairobiservicename == 'FolderService'){
+      dockername = 'folderservice'
+    }else if (nairobiservicename == 'learning'){
+      dockername = 'learning'
+    }else if (nairobiservicename == 'learning-collaboration'){
+      dockername = 'learning-collaboration'
+    }else if (nairobiservicename == 'TreeService'){
+        dockername = 'treeservice'
+    }else if (nairobiservicename == 'Cet.Managment.API'){
+        dockername = 'identitymanagementapi'
+    }else if (nairobiservicename == 'LO-Themes'){
+        dockername = 'lothemes'
+    }else if (nairobiservicename == 'Scratch'){
+        dockername = 'code'
+    }else if (nairobiservicename == 'moodle_azure_2021'){
+        dockername = 'moodle'
+    }else if(nairobiservicename == 'Cet.Activities'){
+        dockername = 'activitycontextsapi'
+    }else if (nairobiservicename == 'MagnilearnService'){
+        dockername = 'magnilearnservice'
+    }else if (nairobiservicename == 'AccountServicesApi'){
+        dockername = 'accountservicesapi'
+    }else if (nairobiservicename == 'AccountServices'){
+        dockername = 'accountservices'
+    }else if (nairobiservicename == 'BotitService') {
+        dockername = 'botitservice'
+    }else if (nairobiservicename == 'Asset-AI') {
+        dockername = 'itestai'
+    }else if (nairobiservicename == 'CatalogClient'){
+        dockername = 'catalogadmin'
+    }else if (nairobiservicename == 'BigBlueButton'){
+        dockername = 'bigbluebutton'
+    }else if (nairobiservicename == 'Cet.Catalog.Api'){
+        dockername = 'catalogapi'
+    }else if (nairobiservicename == 'Cet.CatalogSearchApi'){
+        dockername = 'catalogsearchapi'
+    }else if (nairobiservicename == 'Cet.Authorization.Api'){
+        dockername = 'authzapi'
+    }else if (nairobiservicename == 'TeacherReportsApi'){
+        dockername = 'teacherreportsapi'
+    }else if (nairobiservicename == 'Cet.FileProxy.Api'){
+        dockername = 'fileproxyapi'
+    }else if (nairobiservicename == 'Cet.XApi.Function'){
+        dockername = 'xapifunction'
+    }else if (nairobiservicename?.trim()?.equalsIgnoreCase('infinity')){
+        dockername = (params.infinityAppSelection == 'backend') ? 'infinityapi' : 'infinity'
+    }
+    else{
+      if(nairobiservicename.endsWith('Service')){
+        if(nairobiservicename.contains("Api")){
+          dockername = "${nairobiservicename}".replace("Service","").toLowerCase()
+        }else if(nairobiservicename.contains("API")){
+          dockername = "${nairobiservicename}".replace("Service","").toLowerCase()
+        }else{
+          dockername = "${nairobiservicename}".replace("Service","Api").toLowerCase()
+        }
+      }else{
+        dockername = "${nairobiservicename}".toLowerCase()
+      }
+    }
+    return dockername
+}
+
+def runLTjobs(Map config = [:]){
+PushBRANCH              = config.get("PushBRANCH")
+nairobiservicename      = config.get("nairobiservicename")
+
+  if(nairobiservicename == 'LearningTogether'){
+    build job: "cetAppsBuild",parameters: [ string(name: 'PushBRANCH', value: PushBRANCH),string(name: 'servicename', value: 'LearningTogetherAS') ]
+    build job: "cetAppsBuild",parameters: [ string(name: 'PushBRANCH', value: PushBRANCH),string(name: 'servicename', value: 'LearningTogetherAC') ]
+  }else if(nairobiservicename == 'ApiGateway'){
+    build job: "cetAppsBuild",parameters: [ string(name: 'PushBRANCH', value: PushBRANCH),string(name: 'servicename', value: 'APIGW') ]
+  }else if(nairobiservicename == 'HendrXPoc'){
+    build job: "cetAppsBuild",parameters: [ string(name: 'PushBRANCH', value: PushBRANCH),string(name: 'servicename', value: 'collaboration') ]
+  }else if(nairobiservicename == 'learning'){
+    build job: "cetAppsBuild",parameters: [ 
+      string(name: 'PushBRANCH', value: PushBRANCH),
+      string(name: 'servicename', value: 'learning-collaboration') ]
+    build job: "cetAppsBuild", parameters: [
+      string(name: 'PushBRANCH', value: PushBRANCH),
+      string(name: 'servicename', value: 'learning-api') ]
+  }else{
+    return
+  }
+}
+
+def checkacrtobuild(Map config = [:]){
+dockername      = config.get("dockername")
+VERSION         = config.get("VERSION")
+branch          = config.get("branch")
+commit          = config.get("commit")
+
+  sh "az acr login -n ACR"
+  checkacr = sh (script: "az acr repository show -n ACR --image ${dockername}:${VERSION}", returnStatus: true)
+    if(checkacr != 0){
+      if (dockername == 'hendrxpoc' || dockername == 'collaboration' || dockername == 'learning' || dockername == 'learning-collaboration' || dockername == 'learning-api') {
+        if(PushBRANCH == 'develop') {
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://hendrxpoc.testing --build-arg COLLABORATION_WS_URL_PROD=wss://collaboration.testing:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH.startsWith('cet_') || PushBRANCH == 'cet-develop'){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning.testing --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration.testing:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH == 'cet-main'){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH.contains('cet-release')){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        } else if (dockername == 'infinity') {
+            sh "az acr login -n ACR"
+            sh "docker build -f ./frontend/Dockerfile -t ${dockername} ./frontend"
+            sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+            sh "docker push ACR/${dockername}:${VERSION}"
+            sh "docker rmi ACR/${dockername}:${VERSION}"
+            sh "docker rmi ${dockername}"
+        } else if (dockername == 'infinityapi') {
+            sh "az acr login -n ACR"
+            sh "docker build -f ./backend/Dockerfile -t ${dockername} ./backend"
+            sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+            sh "docker push ACR/${dockername}:${VERSION}"
+            sh "docker rmi ACR/${dockername}:${VERSION}"
+            sh "docker rmi ${dockername}"
+        } else {
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://hendrxpoc --build-arg COLLABORATION_WS_URL_PROD=wss://collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        } 
+      }else if (nairobiservicename == 'infinity' && dockername == 'infinity') {
+        sh "az acr login -n ACR"
+        sh "docker build -f ./frontend/Dockerfile -t ${dockername} ./frontend"
+        sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+        sh "docker push ACR/${dockername}:${VERSION}"
+        sh "docker rmi ACR/${dockername}:${VERSION}"
+        sh "docker rmi ${dockername}"
+      }else if (dockername == 'infinityapi') {
+        sh "az acr login -n ACR"
+        sh "docker build -f ./backend/Dockerfile -t ${dockername} ./backend"
+        sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+        sh "docker push ACR/${dockername}:${VERSION}"
+        sh "docker rmi ACR/${dockername}:${VERSION}"
+        sh "docker rmi ${dockername}"
+      }else {
+        sh "az acr login -n ACR"
+        if (dockername == nairobiservicename.toLowerCase()) {
+          // Default build context for non-infinity services
+        sh "docker build --label branch=${branch} --label commit=${commit} -t ${dockername} ."
+        } else {
+          // Fallback to default context if dockername differs
+          sh "docker build --label branch=${branch} --label commit=${commit} -t ${dockername} ."
+        }
+        sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+        sh "docker push ACR/${dockername}:${VERSION}"
+        sh "docker rmi ACR/${dockername}:${VERSION}"
+        sh "docker rmi ${dockername}"
+      }
+    }else{
+      // Even if the version exists, we should still proceed with the build
+      // This ensures that the version is always bumped
+      echo "Version ${VERSION} already exists, but proceeding with build anyway"
+      
+      if (dockername == 'hendrxpoc' || dockername == 'collaboration' || dockername == 'learning' || dockername == 'learning-collaboration' || dockername == 'learning-api') {
+        if(PushBRANCH == 'develop') {
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://hendrxpoc.testing --build-arg COLLABORATION_WS_URL_PROD=wss://collaboration.testing:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH.startsWith('cet_') || PushBRANCH == 'cet-develop'){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning.testing --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration.testing:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH == 'cet-main'){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        }else if(PushBRANCH.contains('cet-release')){
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://learning --build-arg COLLABORATION_WS_URL_PROD=wss://learning-collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        } else {
+            sh """
+            az acr login -n ACR
+            docker build --build-arg BASE_URL_PROD=https://hendrxpoc --build-arg COLLABORATION_WS_URL_PROD=wss://collaboration:3000 -t ${dockername} .
+            docker tag ${dockername} ACR/${dockername}:${VERSION}
+            docker push ACR/${dockername}:${VERSION}
+            docker rmi ACR/${dockername}:${VERSION}
+            docker rmi ${dockername}
+            """
+        } 
+      }else {
+        sh "az acr login -n ACR"
+        sh "docker build --label branch=${branch} --label commit=${commit} -t ${dockername} ."
+        sh "docker tag ${dockername} ACR/${dockername}:${VERSION}"
+        sh "docker push ACR/${dockername}:${VERSION}"
+        sh "docker rmi ACR/${dockername}:${VERSION}"
+        sh "docker rmi ${dockername}"
+      }
+    }
+}
+
+def checkoutservice(Map config = [:]){
+nairobiservicename      = config.get("nairobiservicename")
+
+  if(nairobiservicename == 'Cet.Authorization.Api' || nairobiservicename == 'Cet.CatalogSearchApi' || nairobiservicename == 'Cet.Catalog.Api' || nairobiservicename == 'CatalogClient' || nairobiservicename == 'AccountServicesApi' || nairobiservicename == 'AccountServices' || nairobiservicename == 'MagnilearnService' || nairobiservicename == 'Cet.Activities' || nairobiservicename == 'ApiGateway' || nairobiservicename == 'BigDataApiService' || nairobiservicename == 'CookiesApiService' || nairobiservicename == 'AccessMngApi' || nairobiservicename == 'AutomationAPI' || nairobiservicename == 'LmsApiService' || nairobiservicename == 'ProductsApiService' || nairobiservicename == 'TermsApi' || nairobiservicename == 'RecommendationsApi' || nairobiservicename == 'TreeService' || nairobiservicename == 'Cet.Managment.API' || nairobiservicename == 'FolderService'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/${nairobiservicename}"]]])
+  }else if(nairobiservicename == 'LO-Services'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/LO-Services"]]])
+  }else if(nairobiservicename == 'APIGW'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/ApiGateway"]]])
+  }else if(nairobiservicename == 'LO-Resources' || nairobiservicename == "DocumentService" || nairobiservicename == "LO-Themes" || nairobiservicename == "Scratch"){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/${nairobiservicename}"]]])
+  }else if(nairobiservicename == 'LearningTogether' || nairobiservicename == 'LearningTogetherAS' || nairobiservicename == 'LearningTogetherAC'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/LearningTogether"]]])
+  }else if(nairobiservicename == 'WhatsAppService'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/WhatsAppService"]]])   
+  }else if(nairobiservicename == 'learning' || nairobiservicename == 'learning-collaboration' || nairobiservicename == 'learning-api'){
+    if(PushBRANCH.startsWith('cet_') || PushBRANCH == 'cet-main' || PushBRANCH == 'cet-develop' || PushBRANCH.contains('cet-release')){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/HendrXPoc"]]]) 
+    }else{
+      error "skiping checkout the branch is not relevant to the chosen service" 
+    }
+  }else if (nairobiservicename == 'HendrXPoc' || nairobiservicename == 'collaboration'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/HendrXPoc"]]])
+  }else if(nairobiservicename == 'ServiceBusMetricsService'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/ServiceBusMetricsService"]]])
+  }else if(nairobiservicename == 'BotitService' || nairobiservicename == 'ProductPlayerServices' || nairobiservicename == 'ActivityService' || nairobiservicename == 'LearningService' || nairobiservicename == 'Dashboard' || nairobiservicename == 'EnvironmentService' || nairobiservicename == 'SpeechAceService'){
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/${nairobiservicename}"]]]) 
+   }else if (nairobiservicename == 'moodle_azure_2021' || nairobiservicename == 'BigBlueButton'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/${nairobiservicename}"]]]) 
+   }else if (nairobiservicename == 'Asset-AI'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/Asset-AI"]]]) 
+   }else if (nairobiservicename == 'Cet.FileProxy.Api'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/Cet.FileProxy.Api"]]]) 
+   }else if (nairobiservicename == 'Cet.XApi.Function'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/Cet.XApi.Function"]]]) 
+   }else if (nairobiservicename == 'infinity'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/infinity"]]]) 
+   }else if (nairobiservicename == 'infinityapi'){
+      checkout([
+      $class: 'GitSCM',
+      branches: [[name: "*/${PushBRANCH}"]], 
+      doGenerateSubmoduleConfigurations: false,
+      extensions: [], 
+      submoduleCfg: [], 
+      userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/infinity"]]]) 
+  }else{
+    checkout([
+    $class: 'GitSCM',
+    branches: [[name: "*/${PushBRANCH}"]], 
+    doGenerateSubmoduleConfigurations: false,
+    extensions: [], 
+    submoduleCfg: [], 
+    userRemoteConfigs: [[credentialsId: '1d641054-6340-40a3-932d-8d01029eafaf', url: "https://<REPO>/_git/${nairobiservicename}"]]])
+  }
+}
+def parseJsonAndGetVersion(jsonString) {
+  parsedJson = new groovy.json.JsonSlurperClassic().parseText(jsonString)
+  return parsedJson['version']
+}
+
+def globalversionBump(Map config = [:]) {
+  currentVersion   = config.get('currentVersion')  
+  versionBumpType     = config.get('versionBumpType')   
+
+  // Split the current version into major, minor, and patch components
+  def (major, minor, patch) = currentVersion.tokenize('.').collect { it.toInteger() }
+
+  switch (versionBumpType) {
+  case 'patch':
+      patch += 1
+      break
+  case 'minor':
+      minor += 1
+      patch = 0
+      break
+  case 'major':
+      major += 1
+      minor = 0
+      patch = 0
+      break
+  default:
+      println "Invalid bump_type. Expected 'patch', 'minor', or 'major'."
+  }
+
+  newVersion = "${major}.${minor}.${patch}"
+  return newVersion        
+}

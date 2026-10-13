@@ -1,0 +1,27 @@
+{{- $root := . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  test.override: |
+    hosts {
+{{- range $key, $value := .Values.hosts }}
+        {{ $value }} {{ $key }}
+{{- end }}
+        fallthrough
+    }
+  test.server: |-
+  {{- range $key, $value := .Values.domains }}
+    {{ $value }}:53 {
+    errors
+    cache 30
+    rewrite name substring {{ $value }} {{ $key }}-service.default.svc.cluster.local
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+      pods insecure
+      fallthrough in-addr.arpa ip6.arpa
+    }
+    forward .  /etc/resolv.conf
+    }
+  {{- end }}
