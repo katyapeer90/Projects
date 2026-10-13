@@ -42,7 +42,7 @@ function App() {
         <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-600 md:text-xl">I'm Katya Peer, a DevOps Engineer building and supporting reliable infrastructure, delivery platforms and automation across cloud and production environments.</p>
         <div className="mt-9 flex flex-wrap gap-3">
           <a href="#projects" className="rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700">Explore projects ↓</a>
-          <a href="/Katya-Peer-CV.pdf" target="_blank" className="rounded-full border border-black/20 bg-white/60 px-6 py-3 text-sm font-bold hover:border-black">View CV ↗</a>
+          <a href={`${import.meta.env.BASE_URL}Katya-Peer-CV.pdf`} target="_blank" className="rounded-full border border-black/20 bg-white/60 px-6 py-3 text-sm font-bold hover:border-black">View CV ↗</a>
           <a href="https://github.com/katyapeer90" target="_blank" className="rounded-full px-5 py-3 text-sm font-bold text-neutral-600 hover:text-black">GitHub <Arrow /></a>
         </div>
       </section>
