@@ -1,86 +1,28 @@
+import { useState } from 'react'
+
 const projects = [
-  {
-    no: '01', label: 'TERRAFORM / AZURE', title: 'Multi-Environment AKS Platform',
-    summary: 'Reusable Infrastructure-as-Code for provisioning and managing Azure Kubernetes environments across development and production workloads.',
-    tags: ['Terraform', 'Azure', 'AKS', 'Kubernetes', 'ACR'],
-    details: ['Reusable Terraform modules', 'Environment-specific configuration', 'AKS node pools & autoscaling', 'ACR and networking integration'],
-    href: 'https://github.com/katyapeer90/Projects/tree/main/Terraform'
-  },
-  {
-    no: '02', label: 'CI/CD / PLATFORM', title: 'CI/CD & Kubernetes Release Platform',
-    summary: 'Delivery workflows covering application builds, container publishing, release management and Kubernetes deployments across multiple environments.',
-    tags: ['Jenkins', 'Groovy', 'Docker', 'Helm', 'Kubernetes'],
-    details: ['Build and deployment pipelines', 'Container publishing', 'Helm release management', 'Environment promotion workflows'],
-    href: 'https://github.com/katyapeer90/Projects/tree/main/Jenkins'
-  },
-  {
-    no: '03', label: 'AUTOMATION / GITHUB', title: 'WordPress Core Update Automation',
-    summary: 'Event-driven automation connecting WordPress core updates to the container build and deployment lifecycle through GitHub Actions.',
-    tags: ['GitHub Actions', 'Docker', 'PHP', 'WordPress', 'CI/CD'],
-    details: ['WordPress update event detection', 'Repository dispatch workflow', 'Automated Dockerfile updates', 'Integration with the normal delivery lifecycle'],
-    href: 'https://github.com/katyapeer90/Projects/tree/main/WP'
-  }
+  {number:'01',kind:'INFRASTRUCTURE AS CODE',title:'Multi-Environment AKS Platform',desc:'Reusable Terraform architecture for provisioning and managing Azure Kubernetes environments, from development through production.',tags:['Terraform','Azure','AKS','Kubernetes','ACR'],url:'https://github.com/katyapeer90/Projects/tree/main/Terraform',symbol:'{ }',features:['Reusable Terraform modules','Environment-specific configuration','Node pools and autoscaling','ACR and network integration']},
+  {number:'02',kind:'CONTINUOUS DELIVERY',title:'CI/CD & Kubernetes Release Platform',desc:'Automated application builds, container publishing, release management and Kubernetes deployments across environments.',tags:['Jenkins','Groovy','Docker','Helm','Kubernetes'],url:'https://github.com/katyapeer90/Projects/tree/main/Jenkins',symbol:'>_',features:['Build and deployment pipelines','Container image publishing','Helm release management','Environment promotion']},
+  {number:'03',kind:'EVENT-DRIVEN AUTOMATION',title:'WordPress Core Update Automation',desc:'An event-driven workflow connecting WordPress core updates to GitHub Actions and the container delivery lifecycle.',tags:['GitHub Actions','Docker','PHP','WordPress'],url:'https://github.com/katyapeer90/Projects/tree/main/WP',symbol:'↗',features:['Core update detection','Repository dispatch','Automated Dockerfile updates','Delivery workflow integration']}
 ]
-
-const Arrow = () => <span aria-hidden="true">↗</span>
-
-function App() {
-  return <div className="min-h-screen grid-bg">
-    <header className="sticky top-0 z-20 border-b border-black/10 bg-[#f7f7f4]/90 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <a href="#top" className="text-lg font-black tracking-tight">KP<span className="text-blue-700">.</span></a>
-        <nav className="flex gap-5 text-sm font-medium text-neutral-600">
-          <a className="hover:text-black" href="#projects">Projects</a><a className="hover:text-black" href="#experience">Experience</a><a className="hover:text-black" href="#about">About</a>
-        </nav>
-      </div>
-    </header>
-
-    <main id="top">
-      <section className="mx-auto max-w-6xl px-6 pb-24 pt-24 md:pb-32 md:pt-32">
-        <div className="mono mb-6 text-xs font-bold tracking-[.22em] text-blue-700">DEVOPS ENGINEER</div>
-        <h1 className="max-w-4xl text-5xl font-black leading-[.96] tracking-[-.055em] md:text-8xl">Infrastructure.<br/>Automation.<br/><span className="text-neutral-400">Reliability.</span></h1>
-        <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-600 md:text-xl">I'm Katya Peer, a DevOps Engineer building and supporting reliable infrastructure, delivery platforms and automation across cloud and production environments.</p>
-        <div className="mt-9 flex flex-wrap gap-3">
-          <a href="#projects" className="rounded-full bg-neutral-950 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700">Explore projects ↓</a>
-          <a href={`${import.meta.env.BASE_URL}Katya-Peer-CV.pdf`} target="_blank" className="rounded-full border border-black/20 bg-white/60 px-6 py-3 text-sm font-bold hover:border-black">View CV ↗</a>
-          <a href="https://github.com/katyapeer90" target="_blank" className="rounded-full px-5 py-3 text-sm font-bold text-neutral-600 hover:text-black">GitHub <Arrow /></a>
-        </div>
-      </section>
-
-      <section id="projects" className="border-y border-black/10 bg-[#efefeb]/75">
-        <div className="mx-auto max-w-6xl px-6 py-24">
-          <div className="mb-12 flex items-end justify-between"><div><div className="mono text-xs font-bold tracking-[.2em] text-blue-700">SELECTED WORK</div><h2 className="mt-3 text-4xl font-black tracking-tight">Engineering projects</h2></div><span className="hidden text-sm text-neutral-500 md:block">03 case studies</span></div>
-          <div className="space-y-4">
-            {projects.map(p => <article key={p.no} className="group rounded-2xl border border-black/10 bg-[#f7f7f4] p-6 transition hover:-translate-y-0.5 hover:border-black/25 md:p-9">
-              <div className="grid gap-7 md:grid-cols-[90px_1fr_280px]">
-                <div><div className="mono text-3xl font-bold text-neutral-300">{p.no}</div><div className="mono mt-2 text-[10px] font-bold tracking-wider text-blue-700">{p.label}</div></div>
-                <div><h3 className="text-2xl font-black tracking-tight md:text-3xl">{p.title}</h3><p className="mt-4 max-w-2xl leading-7 text-neutral-600">{p.summary}</p><div className="mt-5 flex flex-wrap gap-2">{p.tags.map(t => <span key={t} className="mono rounded-md border border-black/10 bg-white/60 px-2.5 py-1 text-xs">{t}</span>)}</div></div>
-                <div className="flex flex-col justify-between border-t border-black/10 pt-5 md:border-l md:border-t-0 md:pl-7 md:pt-0"><ul className="space-y-2 text-sm text-neutral-600">{p.details.map(d => <li key={d}>— {d}</li>)}</ul><a className="mt-7 text-sm font-bold text-blue-700 hover:text-blue-900" href={p.href} target="_blank">View source <Arrow /></a></div>
-              </div>
-            </article>)}
-          </div>
-        </div>
-      </section>
-
-      <section id="experience" className="mx-auto max-w-6xl px-6 py-24">
-        <div className="mono text-xs font-bold tracking-[.2em] text-blue-700">EXPERIENCE</div><h2 className="mt-3 text-4xl font-black tracking-tight">Where I've worked</h2>
-        <div className="mt-12 divide-y divide-black/10 border-y border-black/10">
-          <div className="grid gap-4 py-8 md:grid-cols-[190px_260px_1fr]"><div className="mono text-sm text-neutral-500">2022 — PRESENT</div><div><div className="font-black">DevOps Engineer</div><div className="text-neutral-500">Tricky Tech</div></div><p className="max-w-xl leading-7 text-neutral-600">SRE, CI/CD, Infrastructure-as-Code and platform automation services across multiple client projects and environments.</p></div>
-          <div className="grid gap-4 py-8 md:grid-cols-[190px_260px_1fr]"><div className="mono text-sm text-neutral-500">2017 — 2022</div><div><div className="font-black">IT Manager</div><div className="text-neutral-500">Guberman Group</div></div><p className="max-w-xl leading-7 text-neutral-600">IT operations, networks, systems, security, troubleshooting, migrations and infrastructure reliability across business-critical systems.</p></div>
-        </div>
-      </section>
-
-      <section id="about" className="border-y border-black/10 bg-neutral-950 text-white">
-        <div className="mx-auto grid max-w-6xl gap-12 px-6 py-24 md:grid-cols-2">
-          <div><div className="mono text-xs font-bold tracking-[.2em] text-blue-300">ABOUT</div><h2 className="mt-4 text-4xl font-black tracking-tight">I like making complex systems simpler to operate.</h2><p className="mt-6 leading-7 text-neutral-300">My background spans infrastructure, operations and automation. I work across unfamiliar environments, learn the systems quickly, and build practical solutions that improve delivery and reliability.</p></div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-7 text-sm"><Tech title="Infrastructure" items="Terraform · Kubernetes · Helm · Docker"/><Tech title="CI/CD" items="Jenkins · Git · GitHub Actions"/><Tech title="Cloud" items="Azure · AWS"/><Tech title="Engineering" items="Linux · Groovy · YAML · SRE"/></div>
-        </div>
-      </section>
-    </main>
-
-    <footer className="mx-auto flex max-w-6xl flex-col gap-5 px-6 py-10 text-sm text-neutral-500 md:flex-row md:items-center md:justify-between"><div>© 2026 Katya Peer</div><div className="flex gap-5"><a className="hover:text-black" href="https://github.com/katyapeer90" target="_blank">GitHub ↗</a><a className="hover:text-black" href="mailto:Katep3061@gmail.com">Email ↗</a></div></footer>
-  </div>
+const skills=[{name:'Cloud & infrastructure',value:'Azure · AWS · Terraform'},{name:'Containers & orchestration',value:'Kubernetes · Docker · Helm'},{name:'CI/CD & automation',value:'Jenkins · GitHub Actions · Git'},{name:'Operations',value:'Linux · SRE · Production Support'}]
+function App(){
+ const [menu,setMenu]=useState(false)
+ return <div className="shell" id="home">
+   <aside className="profile">
+     <div className="profile-head"><div className="avatar">KP<span className="avatar-dot"/></div><h2>Katya Peer</h2><p>DevOps Engineer</p><span className="availability"><i/> Open to opportunities</span></div>
+     <div className="profile-body"><div className="meta"><span>Location</span><strong>Israel</strong></div><div className="meta"><span>Focus</span><strong>Cloud & Automation</strong></div><div className="meta"><span>Experience</span><strong>DevOps · 2022—Present</strong></div><div className="side-rule"/><p className="side-title">CORE TECHNOLOGIES</p>{[['Kubernetes','K8s'],['Terraform','IaC'],['Jenkins','CI/CD'],['Docker','Containers']].map(([a,b])=><div className="skill-row" key={a}><span>{a}</span><span>{b}</span></div>)}<div className="side-rule"/><p className="side-title">CONNECT</p><a className="side-link" href="https://github.com/katyapeer90" target="_blank" rel="noreferrer">GitHub <span>↗</span></a><a className="side-link" href="mailto:Katep3061@gmail.com">Email <span>↗</span></a></div>
+     <a className="download" href={`${import.meta.env.BASE_URL}Katya-Peer-CV.pdf`} target="_blank" rel="noreferrer">VIEW MY CV <span>↗</span></a>
+   </aside>
+   <main className="content">
+     <section className="hero" aria-label="Introduction"><div className="hero-grid"/><div className="hero-content"><div className="eyebrow"><span className="dash"/> DEVOPS ENGINEER · PORTFOLIO</div><h1>Building reliable<br/><em>infrastructure.</em><br/>Automating what matters.</h1><p>Hi, I'm <strong>Katya Peer.</strong> I build and support cloud infrastructure, delivery platforms, and automation that help engineering teams move with confidence.</p><div className="hero-actions"><a className="primary-btn" href="#projects">EXPLORE PROJECTS <span>↗</span></a><a className="text-btn" href={`${import.meta.env.BASE_URL}Katya-Peer-CV.pdf`} target="_blank" rel="noreferrer">View résumé ↗</a></div></div><div className="hero-decoration" aria-hidden="true"><div className="ring ring-one"/><div className="ring ring-two"/><div className="ring ring-three"/><span>DEPLOY / AUTOMATE / OPERATE</span></div></section>
+     <div className="content-inner"><div className="quick-stats"><div><b>2022<span>—</span></b><small>DEVOPS ENGINEERING</small></div><div><b>03</b><small>FEATURED CASE STUDIES</small></div><div><b>Cloud <span>+</span> Code</b><small>INFRASTRUCTURE & DELIVERY</small></div></div>
+     <section className="section" id="projects"><div className="section-label">01 / SELECTED WORK</div><div className="section-heading"><h2>Featured <span>projects.</span></h2><p>Practical solutions across infrastructure, deployment and automation.</p></div><div className="projects">{projects.map(p=><article className="project" key={p.number}><div className="project-visual"><span className="project-number">{p.number} / 03</span><div className="project-symbol">{p.symbol}</div><span className="visual-caption">{p.kind}</span></div><div className="project-info"><div className="project-kind">{p.kind}</div><h3>{p.title}</h3><p>{p.desc}</p><div className="tags">{p.tags.map(t=><span key={t}>{t}</span>)}</div><details className="project-details"><summary>Implementation highlights <span>+</span></summary><ul>{p.features.map(f=><li key={f}>{f}</li>)}</ul></details><a className="project-link" href={p.url} target="_blank" rel="noreferrer">EXPLORE SOURCE <span>↗</span></a></div></article>)}</div></section>
+     <section className="section" id="experience"><div className="section-label">02 / CAREER</div><div className="section-heading"><h2>Work <span>experience.</span></h2><p>Engineering background built across infrastructure, operations and automation.</p></div><div className="timeline"><article><div className="timeline-date">2022 — PRESENT</div><div><h3>DevOps Engineer</h3><div className="timeline-company">Tricky Tech</div><p>Providing SRE, CI/CD, Infrastructure-as-Code and platform automation services across multiple client projects and environments. Working closely with development and operations teams to support production and improve delivery.</p></div></article><article><div className="timeline-date">2017 — 2022</div><div><h3>Information Technology Manager</h3><div className="timeline-company">Guberman Group</div><p>Managed IT operations, networks, systems, security and infrastructure reliability. Led troubleshooting, maintenance, migrations and technical improvement initiatives.</p></div></article></div></section>
+     <section className="section" id="about"><div className="section-label">03 / ABOUT & SKILLS</div><div className="section-heading"><h2>Beyond the <span>tooling.</span></h2></div><div className="about-grid"><div><p className="about-lead">I enjoy making complex systems simpler to operate.</p><p className="about-copy">My background spans infrastructure, operations and automation. I adapt quickly to unfamiliar environments, investigate technical challenges and build practical solutions that improve reliability and engineering workflows.</p><a className="inline-link" href="mailto:Katep3061@gmail.com">LET'S CONNECT ↗</a></div><div className="skill-cards">{skills.map(s=><div className="skill-card" key={s.name}><span>{s.name}</span><strong>{s.value}</strong></div>)}</div></div></section>
+     <footer><span>© 2026 KATYA PEER</span><span>BUILT WITH REACT · DEPLOYED WITH GITHUB ACTIONS</span><a href="#home">BACK TO TOP ↑</a></footer></div>
+   </main>
+   <nav className={`rail ${menu?'rail-open':''}`} aria-label="Page navigation"><button className="menu-toggle" onClick={()=>setMenu(!menu)} aria-label="Toggle navigation">☰</button><a href="#home" onClick={()=>setMenu(false)} title="Home"><span className="nav-icon">⌂</span><span className="nav-label">HOME</span></a><a href="#projects" onClick={()=>setMenu(false)} title="Projects"><span className="nav-icon">▦</span><span className="nav-label">PROJECTS</span></a><a href="#experience" onClick={()=>setMenu(false)} title="Experience"><span className="nav-icon">◷</span><span className="nav-label">EXPERIENCE</span></a><a href="#about" onClick={()=>setMenu(false)} title="About"><span className="nav-icon">◎</span><span className="nav-label">ABOUT</span></a><a href="mailto:Katep3061@gmail.com" title="Contact"><span className="nav-icon">✉</span><span className="nav-label">CONTACT</span></a></nav>
+ </div>
 }
-
-function Tech({title, items}:{title:string, items:string}) { return <div><div className="mono mb-2 text-[11px] font-bold uppercase tracking-wider text-neutral-500">{title}</div><div className="leading-6 text-neutral-200">{items}</div></div> }
 export default App
